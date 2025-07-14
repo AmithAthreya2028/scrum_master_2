@@ -1,0 +1,40 @@
+# Microsoft Teams Bot Framework
+botbuilder-core==4.15.0
+botbuilder-schema==4.15.0
+
+
+# Web framework
+aiohttp==3.8.6
+aiohttp-cors==0.7.0
+
+# Database connections
+pymongo==4.6.0
+pinecone-client==3.0.0
+
+# AI/ML
+google-generativeai==0.3.2
+sentence-transformers==2.2.2
+numpy==1.24.3
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+requests==2.32.3
+
+# Scheduling (for future automated standups)
+APScheduler==3.10.4
+
+# Logging and monitoring
+structlog==23.2.0
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.9.1
+flake8==6.1.0
+
+fastapi
+uvicorn
+pydantic
+pandas
+huggingface_hub>=0.10,<0.15

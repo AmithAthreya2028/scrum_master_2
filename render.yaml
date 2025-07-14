@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: ai-scrum-master-api
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn fastapi_teams_bot:app --host 0.0.0.0 --port 10000"
+    envVars:
+      - key: MONGO_URI
+        value: "mongodb+srv://amithathreya:1EkjV6hx2L63iLmR@cluster0.olf7czr.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+      - key: JIRA_BASE_URL
+        value: "https://athreyaamith88.atlassian.net"
+      # ... add all other required env vars
