@@ -109,7 +109,7 @@ async def start_session(request: BotRequest):
 
 @app.post("/select_board", response_model=BotResponse)
 async def select_board(request: BotRequest):
-    """Select a board and initialize team members"""
+    """Select a board, initialize team members, and immediately start the standup"""
     # Ensure session_id is a string (not None)
     safe_session_id = request.session_id if request.session_id is not None else str(uuid.uuid4())
     safe_user_id = request.user_id if request.user_id is not None else "unknown_user"
@@ -128,10 +128,10 @@ async def select_board(request: BotRequest):
     # Save selected board
     session["selected_board_id"] = board_id
 
-    # Initialize temp scrum master to get team members
-    temp_scrum_master = AIScrumMaster(request.user_id)
-    if temp_scrum_master.initialize_sprint_data(board_id):
-        session["team_members"] = list(temp_scrum_master.team_members)
+    # Initialize scrum master and get team members
+    session["scrum_master"] = AIScrumMaster(safe_user_id)
+    if session["scrum_master"].initialize_sprint_data(board_id):
+        session["team_members"] = list(session["scrum_master"].team_members)
 
         if not session["team_members"]:
             return BotResponse(
@@ -141,14 +141,29 @@ async def select_board(request: BotRequest):
                 requires_input=True
             )
 
-        # Format team members as text
-        team_members_text = "Please select your JIRA user by sending the corresponding number:\n"
-        for i, member in enumerate(session["team_members"], 1):
-            team_members_text += f"{i}. {member}\n"
+        # Start the standup with the first team member
+        session["standup_started"] = True
+        session["current_member_index"] = 0
+        session["conversation_step"] = 1
+        session["messages"] = []
+        session["nothing_count"] = 0
+        session["show_summary"] = False
+
+        member = session["team_members"][0]
+        question = session["scrum_master"].generate_question(
+            member,
+            session["conversation_step"]
+        )
+
+        session["messages"].append({
+            "role": "assistant",
+            "content": question
+        })
+        session["scrum_master"].add_assistant_response(question)
 
         return BotResponse(
             activity_id=request.activity_id,
-            text=team_members_text,
+            text=f"Starting standup with {member}.\n\n{question}",
             session_id=session_id,
             requires_input=True
         )
@@ -160,85 +175,7 @@ async def select_board(request: BotRequest):
             requires_input=True
         )
 
-@app.post("/select_user", response_model=BotResponse)
-async def select_user(request: BotRequest):
-    """Select a user and start the standup"""
-    safe_session_id = request.session_id if request.session_id is not None else str(uuid.uuid4())
-    safe_user_id = request.user_id if request.user_id is not None else "unknown_user"
-    session_id, session = get_or_create_session(safe_session_id, safe_user_id)
-
-    if not session["team_members"]:
-        return BotResponse(
-            activity_id=request.activity_id,
-            text="No team members available. Please restart the session.",
-            session_id=session_id,
-            requires_input=False
-        )
-
-    try:
-        # Handle both index selection and direct name input
-        user_input = request.text.strip()
-        selected_user = None
-
-        try:
-            # Try to parse as index
-            index = int(user_input) - 1
-            if 0 <= index < len(session["team_members"]):
-                selected_user = session["team_members"][index]
-        except ValueError:
-            # Try as direct name input
-            if user_input in session["team_members"]:
-                selected_user = user_input
-
-        if not selected_user:
-            return BotResponse(
-                activity_id=request.activity_id,
-                text="Invalid selection. Please enter a valid number or exact name.",
-                session_id=session_id,
-                requires_input=True
-            )
-
-        # Initialize the scrum master with the selected user
-        session["scrum_master"] = AIScrumMaster(selected_user)
-        session["scrum_master"].team_members = set(session["team_members"])
-
-        # Ensure current_sprint is set
-        board_id = session["selected_board_id"]
-        if board_id:
-            session["scrum_master"].initialize_sprint_data(board_id)
-
-        # Start the standup
-        session["standup_started"] = True
-        session["current_member_index"] = 0
-        session["conversation_step"] = 1
-        session["messages"] = []
-
-        # Generate first question for the first team member
-        member = session["team_members"][0]
-        question = session["scrum_master"].generate_question(
-            member,
-            session["conversation_step"]
-        )
-
-        session["messages"].append({
-            "role": "assistant",
-            "content": question
-        })
-
-        return BotResponse(
-            activity_id=request.activity_id,
-            text=f"Starting standup with {member}.\n\n{question}",
-            session_id=session_id,
-            requires_input=True
-        )
-
-    except Exception as e:
-        return BotResponse(
-            activity_id=request.activity_id,
-            text=f"Error starting standup: {str(e)}",
-            session_id=session_id,
-            requires_input=False
-        )
+# Removed /select_user endpoint and logic, as member selection is no longer needed.
 
 @app.post("/message", response_model=BotResponse)
 async def process_message(request: BotRequest):
@@ -312,7 +249,6 @@ async def process_message(request: BotRequest):
     response = request.text
 
     # Command to end the standup early
-
     if response.lower() in ["end standup", "end", "finish"]:
         session["show_summary"] = True
         return await process_message(request)  # Recursively call to generate summary
@@ -347,7 +283,31 @@ async def process_message(request: BotRequest):
         if session["current_member_index"] >= len(team_members):
             # We're done, get the summary
             session["show_summary"] = True
-            return await process_message(request)
+            summary = session["scrum_master"].generate_summary()
+
+            # Store the conversation in the database
+            conversation_doc = {
+                "user_id": session["user_id"],
+                "messages": session["scrum_master"].conversation_history,
+                "summary": summary
+            }
+            store_conversation(conversation_doc)
+
+            # Reset the session
+            session["standup_started"] = False
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["show_summary"] = False
+
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
+                session_id=session_id,
+                is_end=True,
+                summary=summary,
+                requires_input=True
+            )
 
         # Get the next member
         next_member = team_members[session["current_member_index"]]
@@ -495,9 +455,10 @@ async def teams_webhook(request: Request):
                         bot_response = await select_board(bot_request)
                         print("select_board response:", bot_response)
                     elif not session.get("standup_started"):
-                        print("User selection phase")
-                        bot_response = await select_user(bot_request)
-                        print("select_user response:", bot_response)
+                        print("Standup not started, waiting for board selection.")
+                        # This should not happen, but if it does, prompt to select a board again
+                        bot_response = await start_session(bot_request)
+                        print("start_session response:", bot_response)
                     else:
                         print("Processing message in ongoing standup")
                         bot_response = await process_message(bot_request)
