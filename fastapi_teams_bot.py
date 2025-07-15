@@ -248,11 +248,31 @@ async def process_message(request: BotRequest):
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
     if not session["standup_started"]:
+        # Allow user to type 'start' or 'start standup' to begin a new session
+        if request.text.strip().lower() in ["start", "start standup"]:
+            # Call the start_session logic
+            boards = get_boards()
+            if not boards:
+                return BotResponse(
+                    activity_id=request.activity_id,
+                    text="No boards available. Please check your JIRA configuration.",
+                    session_id=session_id,
+                    requires_input=False
+                )
+            board_text = "Please select a board by sending its ID:\n"
+            for board in boards:
+                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Welcome to AI Scrum Master! Let me fetch the available boards.\n\n" + board_text,
+                session_id=session_id,
+                requires_input=True
+            )
         return BotResponse(
             activity_id=request.activity_id,
-            text="Standup not started. Please start a new session.",
+            text="Standup not started. Please type 'start' to begin a new standup session.",
             session_id=session_id,
-            requires_input=False
+            requires_input=True
         )
 
     team_members = session["team_members"]
@@ -280,11 +300,11 @@ async def process_message(request: BotRequest):
 
         return BotResponse(
             activity_id=request.activity_id,
-            text="Standup Summary:\n\n" + summary,
+            text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
             session_id=session_id,
             is_end=True,
             summary=summary,
-            requires_input=False
+            requires_input=True
         )
 
     # Handle response for the current team member
