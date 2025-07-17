@@ -115,8 +115,11 @@ async def select_board(request: BotRequest):
     safe_user_id = request.user_id if request.user_id is not None else "unknown_user"
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
+    import re
+    # Remove Teams mention markup and bot name from the message
+    clean_text = re.sub(r"<at>.*?</at>", "", request.text).replace("@Agentic Scrum Bot", "").strip()
     try:
-        board_id = int(request.text.strip())
+        board_id = int(clean_text)
     except ValueError:
         return BotResponse(
             activity_id=request.activity_id,
