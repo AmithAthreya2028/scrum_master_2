@@ -489,7 +489,8 @@ async def teams_webhook(request: Request):
                 print("Returning Teams-compatible activity:", bot_response.text)
                 return {
                     "type": "message",
-                    "text": bot_response.text
+                    "text": bot_response.text,
+                    "replyToId": data.get("id")
                 }
         else:
             print("No response generated.")
