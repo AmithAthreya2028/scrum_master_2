@@ -390,7 +390,7 @@ async def teams_webhook(request: Request):
         print("Received activity type:", data.get("type"))
 
         # Extract relevant information from Teams activity
-        activity_id = data.get("id", str(uuid.uuid4()))
+        activity_id = data.get("iit d", str(uuid.uuid4()))
         activity_type = data.get("type", "")
         text = data.get("text", "").strip()
 
@@ -489,12 +489,7 @@ async def teams_webhook(request: Request):
                 print("Returning Teams-compatible activity:", bot_response.text)
                 return {
                     "type": "message",
-                    "text": bot_response.text,
-                    "from": data.get("recipient"),
-                    "recipient": data.get("from"),
-                    "conversation": data.get("conversation"),
-                    "replyToId": data.get("id"),
-                    "serviceUrl": data.get("serviceUrl")
+                    "text": bot_response.text
                 }
         else:
             print("No response generated.")
