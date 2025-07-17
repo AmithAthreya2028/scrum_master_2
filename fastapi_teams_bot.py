@@ -470,7 +470,7 @@ async def teams_webhook(request: Request):
             print("Unsupported activity type received:", activity_type)
             return JSONResponse(content={"message": f"Activity type '{activity_type}' not supported"})
 
-        # Send proactive reply for personal chat
+        # Send reply for personal chat or group chat
         if bot_response is not None:
             conversation_type = data.get("conversation", {}).get("conversationType")
             if conversation_type == "personal":
@@ -484,6 +484,42 @@ async def teams_webhook(request: Request):
                     app_password=MICROSOFT_APP_PASSWORD
                 )
                 # Return 200 OK with empty body (Teams will show the proactive reply)
+                return {}
+            elif conversation_type in ["groupChat", "channel"]:
+                print("Sending reply for group chat or channel using Teams REST API.")
+                # Send reply using Teams REST API for group chat/channel
+                service_url = data.get("serviceUrl")
+                conversation_id = data.get("conversation", {}).get("id")
+                text = bot_response.text
+                app_id = MICROSOFT_APP_ID
+                app_password = MICROSOFT_APP_PASSWORD
+
+                # Get OAuth token
+                token_url = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+                token_data = {
+                    "grant_type": "client_credentials",
+                    "client_id": app_id,
+                    "client_secret": app_password,
+                    "scope": "https://api.botframework.com/.default"
+                }
+                token_response = requests.post(token_url, data=token_data)
+                token = token_response.json().get("access_token")
+
+                # Prepare the reply activity
+                activity = {
+                    "type": "message",
+                    "text": text
+                }
+
+                # Send the reply to the conversation activities endpoint
+                url = f"{service_url}/v3/conversations/{conversation_id}/activities"
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+                response = requests.post(url, headers=headers, json=activity)
+                print("Teams group reply status:", response.status_code, response.text)
+                # Return 200 OK with empty body
                 return {}
             else:
                 print("Returning Teams-compatible activity:", bot_response.text)
