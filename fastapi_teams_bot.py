@@ -256,21 +256,26 @@ async def process_message(request: BotRequest):
         session["show_summary"] = True
         return await process_message(request)  # Recursively call to generate summary
 
-    # Add user response to messages and scrum master
+    import re
+    # Clean user response of Teams mention markup and bot name
+    clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
+
+    # Add cleaned user response to messages and scrum master
     session["messages"].append({
         "role": "user",
-        "content": response
+        "content": clean_response
     })
-    session["scrum_master"].add_user_response(member, response)
+    session["scrum_master"].add_user_response(member, clean_response)
 
     # Check if the response is trivial
-    if response.strip().lower() in ["nothing", "nothing thank you", "no", "none"]:
+    if clean_response.strip().lower() in ["nothing", "nothing thank you", "no", "none", "done", "finished", "ok"]:
         session["nothing_count"] = session.get("nothing_count", 0) + 1
     else:
         session["nothing_count"] = 0  # Reset if the response is meaningful
 
     # Check response completeness
-    is_complete = session["scrum_master"].check_response_completeness(member, response)
+    is_complete = session["scrum_master"].check_response_completeness(member, clean_response)
+    print(f"Cleaned response: {clean_response}, Completeness: {is_complete}")
 
     # If the response is complete or too many "nothing" responses
     if is_complete or session["nothing_count"] >= 2:
