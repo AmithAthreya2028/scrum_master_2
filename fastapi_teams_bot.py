@@ -281,19 +281,13 @@ async def process_message(request: BotRequest):
     is_complete = session["scrum_master"].check_response_completeness(member, clean_response)
     print(f"Cleaned response: {clean_response}, Completeness: {is_complete}")
 
-    # Force completion if we've reached or exceeded the last question (step 5)
+    # Force completion and move to next user if we've reached or exceeded the last question (step 5)
     if session["conversation_step"] >= 5:
         is_complete = True
-
-    # If the response is complete or too many "nothing" responses
-    if is_complete or session["nothing_count"] >= 2:
-        final_message = f"Thanks for the update, {member}."
-
-        # Move to next team member
-        session["current_member_index"] += 1
         session["conversation_step"] = 1
-        session["messages"] = []  # Reset messages for the next member
-        session["nothing_count"] = 0  # Reset the counter
+        session["current_member_index"] += 1
+        session["messages"] = []
+        session["nothing_count"] = 0
 
         # Check if we're done with all team members
         if session["current_member_index"] >= len(team_members):
@@ -326,6 +320,60 @@ async def process_message(request: BotRequest):
             )
 
         # Get the next member
+        next_member = team_members[session["current_member_index"]]
+        next_question = session["scrum_master"].generate_question(
+            next_member,
+            session["conversation_step"]
+        )
+
+        session["messages"].append({
+            "role": "assistant",
+            "content": next_question
+        })
+        session["scrum_master"].add_assistant_response(next_question)
+
+        return BotResponse(
+            activity_id=request.activity_id,
+            text=f"Thanks for the update, {member}. I'll now move on to {next_member}.\n\n{next_question}",
+            session_id=session_id,
+            requires_input=True
+        )
+
+    # If the response is complete or too many "nothing" responses
+    if is_complete or session["nothing_count"] >= 2:
+        # This block is now handled above if conversation_step >= 5
+        # Only handle the case where we haven't reached the last question yet
+        final_message = f"Thanks for the update, {member}."
+
+        session["current_member_index"] += 1
+        session["conversation_step"] = 1
+        session["messages"] = []
+        session["nothing_count"] = 0
+
+        if session["current_member_index"] >= len(team_members):
+            session["show_summary"] = True
+            summary = session["scrum_master"].generate_summary()
+            conversation_doc = {
+                "user_id": session["user_id"],
+                "messages": session["scrum_master"].conversation_history,
+                "summary": summary
+            }
+            store_conversation(conversation_doc)
+            session["standup_started"] = False
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["show_summary"] = False
+
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
+                session_id=session_id,
+                is_end=True,
+                summary=summary,
+                requires_input=True
+            )
+
         next_member = team_members[session["current_member_index"]]
         next_question = session["scrum_master"].generate_question(
             next_member,
