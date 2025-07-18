@@ -268,7 +268,11 @@ async def process_message(request: BotRequest):
     session["scrum_master"].add_user_response(member, clean_response)
 
     # Check if the response is trivial
-    if clean_response.strip().lower() in ["nothing", "nothing thank you", "no", "none", "done", "finished", "ok"]:
+    trivial_responses = [
+        "nothing", "nothing thank you", "no", "none", "done", "finished", "ok",
+        "nope", "no nothing", "nothing to discuss", "no nothing to discuss further"
+    ]
+    if clean_response.strip().lower() in trivial_responses:
         session["nothing_count"] = session.get("nothing_count", 0) + 1
     else:
         session["nothing_count"] = 0  # Reset if the response is meaningful
@@ -276,6 +280,10 @@ async def process_message(request: BotRequest):
     # Check response completeness
     is_complete = session["scrum_master"].check_response_completeness(member, clean_response)
     print(f"Cleaned response: {clean_response}, Completeness: {is_complete}")
+
+    # Force completion if we've reached or exceeded the last question (step 5)
+    if session["conversation_step"] >= 5:
+        is_complete = True
 
     # If the response is complete or too many "nothing" responses
     if is_complete or session["nothing_count"] >= 2:
