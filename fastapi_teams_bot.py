@@ -188,9 +188,8 @@ async def process_message(request: BotRequest):
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
     if not session["standup_started"]:
-        # Allow user to type 'start' or 'start standup' to begin a new session
+        # Only respond to explicit start commands
         if request.text.strip().lower() in ["start", "start standup"]:
-            # Call the start_session logic
             boards = get_boards()
             if not boards:
                 return BotResponse(
@@ -208,12 +207,14 @@ async def process_message(request: BotRequest):
                 session_id=session_id,
                 requires_input=True
             )
-        return BotResponse(
-            activity_id=request.activity_id,
-            text="Standup not started. Please type 'start' to begin a new standup session.",
-            session_id=session_id,
-            requires_input=True
-        )
+        else:
+            # For any other message, do NOT prompt for board selection
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup not started. Please type 'start' to begin a new standup session.",
+                session_id=session_id,
+                requires_input=True
+            )
 
     team_members = session["team_members"]
     current_index = session["current_member_index"]
@@ -256,6 +257,36 @@ async def process_message(request: BotRequest):
         session["show_summary"] = True
         return await process_message(request)  # Recursively call to generate summary
 
+    # Command to stop the standup and generate summary immediately
+    if response.lower() in ["stop", "cancel", "abort", "quit"]:
+        # Mark the session as stopped
+        session["standup_started"] = False
+        session["show_summary"] = False
+        session["current_member_index"] = 0
+        session["conversation_step"] = 1
+        session["messages"] = []
+        session["nothing_count"] = 0
+
+        # Generate a partial summary if scrum_master exists
+        partial_summary = session["scrum_master"].generate_summary() if session.get("scrum_master") else "Standup stopped. No summary available."
+
+        # Store the conversation in the database
+        conversation_doc = {
+            "user_id": session["user_id"],
+            "messages": session["scrum_master"].conversation_history if session.get("scrum_master") else [],
+            "summary": partial_summary
+        }
+        store_conversation(conversation_doc)
+
+        return BotResponse(
+            activity_id=request.activity_id,
+            text="Standup has been stopped by request. Here’s a summary of what was discussed so far:\n\n" + partial_summary + "\n\nYou can type 'start' to begin a new standup session.",
+            session_id=session_id,
+            is_end=True,
+            summary=partial_summary,
+            requires_input=True
+        )
+
     import re
     # Clean user response of Teams mention markup and bot name
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
@@ -281,13 +312,15 @@ async def process_message(request: BotRequest):
     is_complete = session["scrum_master"].check_response_completeness(member, clean_response)
     print(f"Cleaned response: {clean_response}, Completeness: {is_complete}")
 
-    # Force completion and move to next user if we've reached or exceeded the last question (step 5)
-    if session["conversation_step"] >= 5:
-        is_complete = True
-        session["conversation_step"] = 1
+    # If the response is complete or too many "nothing" responses
+    if is_complete or session["nothing_count"] >= 2:
+        final_message = f"Thanks for the update, {member}."
+
+        # Move to next team member
         session["current_member_index"] += 1
-        session["messages"] = []
-        session["nothing_count"] = 0
+        session["conversation_step"] = 1
+        session["messages"] = []  # Reset messages for the next member
+        session["nothing_count"] = 0  # Reset the counter
 
         # Check if we're done with all team members
         if session["current_member_index"] >= len(team_members):
@@ -320,60 +353,6 @@ async def process_message(request: BotRequest):
             )
 
         # Get the next member
-        next_member = team_members[session["current_member_index"]]
-        next_question = session["scrum_master"].generate_question(
-            next_member,
-            session["conversation_step"]
-        )
-
-        session["messages"].append({
-            "role": "assistant",
-            "content": next_question
-        })
-        session["scrum_master"].add_assistant_response(next_question)
-
-        return BotResponse(
-            activity_id=request.activity_id,
-            text=f"Thanks for the update, {member}. I'll now move on to {next_member}.\n\n{next_question}",
-            session_id=session_id,
-            requires_input=True
-        )
-
-    # If the response is complete or too many "nothing" responses
-    if is_complete or session["nothing_count"] >= 2:
-        # This block is now handled above if conversation_step >= 5
-        # Only handle the case where we haven't reached the last question yet
-        final_message = f"Thanks for the update, {member}."
-
-        session["current_member_index"] += 1
-        session["conversation_step"] = 1
-        session["messages"] = []
-        session["nothing_count"] = 0
-
-        if session["current_member_index"] >= len(team_members):
-            session["show_summary"] = True
-            summary = session["scrum_master"].generate_summary()
-            conversation_doc = {
-                "user_id": session["user_id"],
-                "messages": session["scrum_master"].conversation_history,
-                "summary": summary
-            }
-            store_conversation(conversation_doc)
-            session["standup_started"] = False
-            session["current_member_index"] = 0
-            session["conversation_step"] = 1
-            session["messages"] = []
-            session["show_summary"] = False
-
-            return BotResponse(
-                activity_id=request.activity_id,
-                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
-                session_id=session_id,
-                is_end=True,
-                summary=summary,
-                requires_input=True
-            )
-
         next_member = team_members[session["current_member_index"]]
         next_question = session["scrum_master"].generate_question(
             next_member,
@@ -583,6 +562,11 @@ async def teams_webhook(request: Request):
                 }
                 response = requests.post(url, headers=headers, json=activity)
                 print("Teams group reply status:", response.status_code, response.text)
+
+                # If this is the summary, reset the session only after sending the summary
+                if bot_response.is_end:
+                    print("Standup complete, summary sent to group chat.")
+
                 # Return 200 OK with empty body
                 return {}
             else:
