@@ -274,13 +274,16 @@ async def process_message(request: BotRequest):
 
     # Command to stop the standup and generate summary immediately
     if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
-        # Mark the session as stopped
+        # Mark the session as stopped and reset all standup-related state
         session["standup_started"] = False
         session["show_summary"] = False
         session["current_member_index"] = 0
         session["conversation_step"] = 1
         session["messages"] = []
         session["nothing_count"] = 0
+        session["selected_board_id"] = None
+        session["team_members"] = []
+        session["scrum_master"] = None
 
         # Generate a partial summary if scrum_master exists
         partial_summary = session["scrum_master"].generate_summary() if session.get("scrum_master") else "Standup stopped. No summary available."
