@@ -188,8 +188,19 @@ async def process_message(request: BotRequest):
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
     if not session["standup_started"]:
+        # Clean user response of Teams mention markup and bot name
+        import re
+        clean_response = re.sub(r"<at>.*?</at>", "", request.text).replace("@Agentic Scrum Bot", "").strip()
+        # Check for stop command before standup starts
+        if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="No standup is currently in progress. Type 'start' to begin a new standup session.",
+                session_id=session_id,
+                requires_input=True
+            )
         # Only respond to explicit start commands
-        if request.text.strip().lower() in ["start", "start standup"]:
+        if clean_response.lower() in ["start", "start standup"]:
             boards = get_boards()
             if not boards:
                 return BotResponse(
