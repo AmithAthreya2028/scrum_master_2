@@ -252,13 +252,17 @@ async def process_message(request: BotRequest):
     member = team_members[current_index]
     response = request.text
 
+    import re
+    # Clean user response of Teams mention markup and bot name
+    clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
+
     # Command to end the standup early
-    if response.lower() in ["end standup", "end", "finish"]:
+    if clean_response.lower() in ["end standup", "end", "finish"]:
         session["show_summary"] = True
         return await process_message(request)  # Recursively call to generate summary
 
     # Command to stop the standup and generate summary immediately
-    if response.lower() in ["stop", "cancel", "abort", "quit"]:
+    if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
         # Mark the session as stopped
         session["standup_started"] = False
         session["show_summary"] = False
@@ -286,10 +290,6 @@ async def process_message(request: BotRequest):
             summary=partial_summary,
             requires_input=True
         )
-
-    import re
-    # Clean user response of Teams mention markup and bot name
-    clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
     # Add cleaned user response to messages and scrum master
     session["messages"].append({
