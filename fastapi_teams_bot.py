@@ -305,6 +305,63 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
 
+    # Skip user functionality
+    if clean_response.lower() in ["skip", "skip user", "not available", "on leave", "sick leave"]:
+        skipped_member = member
+        session["messages"].append({
+            "role": "system",
+            "content": f"{skipped_member} was skipped (not available)."
+        })
+        if session.get("scrum_master"):
+            session["scrum_master"].add_assistant_response(f"{skipped_member} was skipped (not available).")
+        # Move to next team member
+        session["current_member_index"] += 1
+        session["conversation_step"] = 1
+        session["messages"] = []
+        session["nothing_count"] = 0
+
+        # Check if we're done with all team members
+        if session["current_member_index"] >= len(team_members):
+            session["show_summary"] = True
+            summary = session["scrum_master"].generate_summary()
+            conversation_doc = {
+                "user_id": session["user_id"],
+                "messages": session["scrum_master"].conversation_history,
+                "summary": summary
+            }
+            store_conversation(conversation_doc)
+            session["standup_started"] = False
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["show_summary"] = False
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
+                session_id=session_id,
+                is_end=True,
+                summary=summary,
+                requires_input=True
+            )
+
+        # Get the next member
+        next_member = team_members[session["current_member_index"]]
+        next_question = session["scrum_master"].generate_question(
+            next_member,
+            session["conversation_step"]
+        )
+        session["messages"].append({
+            "role": "assistant",
+            "content": next_question
+        })
+        session["scrum_master"].add_assistant_response(next_question)
+        return BotResponse(
+            activity_id=request.activity_id,
+            text=f"{skipped_member} was skipped. Moving on to {next_member}.\n\n{next_question}",
+            session_id=session_id,
+            requires_input=True
+        )
+
     # Add cleaned user response to messages and scrum master
     session["messages"].append({
         "role": "user",
