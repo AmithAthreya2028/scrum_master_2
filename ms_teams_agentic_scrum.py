@@ -48,6 +48,9 @@ def safe_encode(model, text):
 import os
 from dotenv import load_dotenv
 
+# Print the current GEMINI_API_KEY at startup for debugging
+print("GEMINI_API_KEY at startup:", os.getenv("GEMINI_API_KEY"))
+
 # Only load .env if GEMINI_API_KEY is not already set in the environment
 if not os.getenv("GEMINI_API_KEY"):
     load_dotenv()
