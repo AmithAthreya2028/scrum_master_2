@@ -65,6 +65,12 @@ def get_or_create_session(session_id: Optional[str] = None, user_id: str = "unkn
 async def root():
     return {"status": "online", "message": "MS Teams Agentic Scrum API"}
 
+@app.get("/debug-gemini-key")
+async def debug_gemini_key():
+    import os
+    print("GEMINI_API_KEY on /debug-gemini-key call:", os.getenv("GEMINI_API_KEY"))
+    return {"gemini_api_key": os.getenv("GEMINI_API_KEY")}
+
 @app.get("/boards")
 async def list_boards():
     """List available JIRA boards"""
