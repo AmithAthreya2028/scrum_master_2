@@ -58,6 +58,7 @@ jira_auth = HTTPBasicAuth(JIRA_EMAIL, JIRA_API_TOKEN)#type: ignore
 jira_headers = {"Accept": "application/json"}
 
 # Gemini Configuration
+print("Gemini API Key (debug):", os.getenv("GEMINI_API_KEY"))  # Debug print for verification
 genai.configure(api_key=os.getenv("GEMINI_API_KEY")) #type: ignore
 model = genai.GenerativeModel('gemini-2.5-flash')#type: ignore
 
