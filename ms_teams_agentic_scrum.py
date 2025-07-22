@@ -391,6 +391,7 @@ class AIScrumMaster:
         """
         Return a fixed Scrum question, refined using Pinecone context, Mongo context, and cross-user context for contradiction-aware questioning.
         Also includes semantically similar context from other users' tasks.
+        Now also includes the previous question and answer to avoid repetition.
         """
         # Standard, fixed Scrum questions
         base_questions = {
@@ -435,27 +436,47 @@ class AIScrumMaster:
                 f"- {c.get('member_name', 'Unknown')}: {c.get('text', '')}" for c in semantic_contexts
             ])
 
+        # Get previous question and answer for this member
+        previous_question = None
+        previous_answer = None
+        for msg in reversed(self.conversation_history):
+            if msg["role"] == "assistant" and previous_question is None:
+                previous_question = msg["content"]
+            elif msg["role"] == "user" and previous_answer is None:
+                previous_answer = msg["content"]
+            if previous_question and previous_answer:
+                break
+
         prompt = f"""
-        You are an AI Scrum Master named AgileBot conducting a standup with {member_name} at step {step}.
+You are an AI Scrum Master named AgileBot conducting a standup with {member_name} at step {step}.
 
-        Here is the standard Scrum question you should ask:
-        "{base_question}"
+Here is the standard Scrum question you should ask:
+"{base_question}"
 
-        Tasks context for {member_name}:
-        {tasks_context}
+Previous question asked:
+"{previous_question}"
 
-        Recent conversation context from Pinecone:
-        {pinecone_context}
+User's previous answer:
+"{previous_answer}"
 
-        Historical context from MongoDB:
-        {mongo_context}
+Tasks context for {member_name}:
+{tasks_context}
 
-        {cross_user_str}
+Recent conversation context from Pinecone:
+{pinecone_context}
 
-        {semantic_context_str}
+Historical context from MongoDB:
+{mongo_context}
 
-        Using the above information, generate a single, friendly, and concise question that incorporates all relevant details. If there are contradictions or different blockers reported by other users for the same or similar tasks, ask a clarifying or contradiction-aware follow-up.
-        """
+{cross_user_str}
+
+{semantic_context_str}
+
+Using the above information, generate a single, friendly, and concise question that incorporates all relevant details.
+- Do NOT repeat questions that have already been answered.
+- If the user has already addressed a blocker or task, move on to the next relevant topic.
+- If clarification is needed, ask a follow-up, otherwise proceed to the next standup question.
+"""
 
         # Call the Gemini model to generate a refined question
         refined_question = model.generate_content(prompt).text.strip()
