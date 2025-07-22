@@ -45,7 +45,12 @@ def safe_encode(model, text):
 # --------------------------------------------------------------------------------
 # 1) Load environment variables and configure APIs
 # --------------------------------------------------------------------------------
-load_dotenv()
+import os
+from dotenv import load_dotenv
+
+# Only load .env if GEMINI_API_KEY is not already set in the environment
+if not os.getenv("GEMINI_API_KEY"):
+    load_dotenv()
 
 # MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI")
