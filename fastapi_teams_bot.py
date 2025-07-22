@@ -566,8 +566,25 @@ async def teams_webhook(request: Request):
                     session = bot_sessions[session_id]
                     if session.get("selected_board_id") is None:
                         print("Board selection phase")
-                        bot_response = await select_board(bot_request)
-                        print("select_board response:", bot_response)
+                        # Try to parse the board ID from the message
+                        import re
+                        clean_text = re.sub(r"<at>.*?</at>", "", text).replace("@Agentic Scrum Bot", "").strip()
+                        try:
+                            board_id = int(clean_text)
+                            bot_response = await select_board(bot_request)
+                            print("select_board response:", bot_response)
+                        except ValueError:
+                            # Not a valid board ID, prompt user to send a valid one
+                            boards = get_boards()
+                            board_text = "Please select a board by sending its ID:\n"
+                            for board in boards:
+                                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+                            bot_response = BotResponse(
+                                activity_id=activity_id,
+                                text="Invalid board ID. Please send a numeric ID.\n\n" + board_text,
+                                session_id=session_id,
+                                requires_input=True
+                            )
                     elif not session.get("standup_started"):
                         print("Standup not started, waiting for board selection.")
                         # This should not happen, but if it does, prompt to select a board again

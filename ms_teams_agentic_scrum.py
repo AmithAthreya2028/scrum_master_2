@@ -546,12 +546,22 @@ Please format your answer as a bullet list.
             return True  # Treat these as complete responses
 
         prompt = f"""
-    You are an AI Scrum Master. Analyze the following standup response from {member_name}:
-    ---
-    {response}
-    ---
-    Answer with a single word: "Complete" if the response adequately covers all key topics (updates, plans, blockers), or "Incomplete" if further follow-up is needed. Then, provide a brief explanation.
-    """
+You are an AI Scrum Master. Analyze the following standup response from {member_name}:
+---
+{response}
+---
+Consider the response 'Complete' if the user gives any reasonable update, even if it is brief, informal, or non-technical (e.g., 'I'm working on it', 'All good', 'No blockers', 'Progressing', etc.).
+Only mark as 'Incomplete' if the response is completely missing, off-topic, or does not address the question at all.
+Examples of responses that should be considered 'Complete':
+- 'I'm working on it'
+- 'No blockers'
+- 'Progressing'
+- 'All good'
+- 'Done'
+- 'Fixed'
+- 'Still working'
+Answer with a single word: "Complete" if the response is adequate, or "Incomplete" if further follow-up is needed. Then, provide a brief explanation.
+"""
         result = model.generate_content(prompt).text.strip()
         print("Completeness Analysis:", result)
         if result.lower().startswith("complete"):
