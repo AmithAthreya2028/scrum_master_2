@@ -27,7 +27,7 @@ try:
     else:
         pinecone = pinecone_mod
         pinecone_version = 2
-except Exception as e:
+except Exception :
     Pinecone = None
     pinecone = None
     pinecone_version = None
@@ -72,7 +72,7 @@ model = genai.GenerativeModel('gemini-2.5-flash')#type: ignore
 
 # Pinecone Configuration
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
+PINECONE_REGION = os.getenv("PINECONE_ENVIRONMENT") or "us-east-1"
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "ai-scrum-index")
 
 # --------------------------------------------------------------------------------
@@ -81,31 +81,27 @@ PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "ai-scrum-index")
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
 EMBEDDING_DIMENSION = 384  # Dimension for 'all-MiniLM-L6-v2' embeddings
 
-# Pinecone initialization compatible with both classic and new SDK
-index = None
-try:
-    if pinecone_version == 3 and Pinecone is not None and IndexSpec is not None:
-        pc = Pinecone(api_key=PINECONE_API_KEY)
-        if PINECONE_INDEX_NAME not in [idx.name for idx in pc.list_indexes()]:
-            spec = IndexSpec(
-                name=PINECONE_INDEX_NAME,
-                dimension=EMBEDDING_DIMENSION,
-                metric='cosine'
-            )
-            pc.create_index(spec)
-        index = pc.Index(PINECONE_INDEX_NAME)
-    elif pinecone_version == 2 and pinecone is not None:
-        pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT or "us-east-1")
-        if PINECONE_INDEX_NAME not in pinecone.list_indexes():
-            pinecone.create_index(
-                name=PINECONE_INDEX_NAME,
-                dimension=EMBEDDING_DIMENSION,
-                metric='cosine',
-            )
-        index = pinecone.Index(PINECONE_INDEX_NAME)
-except Exception as e:
-    print(f"Failed to initialize Pinecone: {str(e)}")
-    index = None
+# Pinecone v3 initialization
+from pinecone import Pinecone, ServerlessSpec
+
+print("Pinecone API Key:", PINECONE_API_KEY)
+print("Pinecone Region:", PINECONE_REGION)
+pc = Pinecone(api_key=PINECONE_API_KEY)
+
+# Check if the index exists, and create it if not
+if PINECONE_INDEX_NAME not in [idx.name for idx in pc.list_indexes()]:
+    print(f"Index '{PINECONE_INDEX_NAME}' does not exist. Creating...")
+    pc.create_index(
+        name=PINECONE_INDEX_NAME,
+        dimension=EMBEDDING_DIMENSION,
+        metric="cosine",
+        spec=ServerlessSpec(cloud="aws", region=PINECONE_REGION)
+    )
+else:
+    print(f"Index '{PINECONE_INDEX_NAME}' already exists.")
+
+index = pc.Index(PINECONE_INDEX_NAME)
+print("Connected to Pinecone index:", PINECONE_INDEX_NAME)
 
 # --------------------------------------------------------------------------------
 # 2) MongoDB Setup
@@ -311,9 +307,16 @@ class AIScrumMaster:
         })
 
         # Load previous standups
+        # Only load summaries from previous standups, not full messages
         previous_standups = get_previous_standups(self.user_id, limit=3)
         for doc in reversed(previous_standups):
-            self.conversation_history.extend(doc.get("messages", []))
+            summary = doc.get("summary")
+            if summary:
+                self.conversation_history.append({
+                    "role": "system",
+                    "content": f"[Previous Standup Summary]\n{summary}",
+                    "timestamp": doc.get("date")
+                })
 
     def initialize_sprint_data(self, board_id: int):
         """Initialize sprint data from JIRA."""
@@ -352,17 +355,11 @@ class AIScrumMaster:
         ])
 
     def get_mongo_context(self, member_name: str) -> str:
-        # Retrieve the last 5 standup documents for this user
-        docs = get_previous_standups(self.user_id, limit=5)
-        context_lines = []
-        for doc in docs:
-            # You can adjust this filtering based on how you store messages.
-            for msg in doc.get("messages", []):
-                # Optionally, filter messages related to the current member.
-                if member_name in msg.get("content", "") or msg.get("role") == "assistant":
-                    context_lines.append(msg["content"])
-        if context_lines:
-            return "\nRelevant Historical Updates:\n" + "\n".join(f"- {line}" for line in context_lines)
+        # Retrieve only the latest 3 summaries for this user from previous standups
+        docs = get_previous_standups(self.user_id, limit=3)
+        summaries = [doc.get("summary") for doc in docs if doc.get("summary")]
+        if summaries:
+            return "\nRecent Standup Summaries:\n" + "\n".join(f"- {s}" for s in summaries)
         return "No historical updates available."
 
     def get_contextual_history(self, member_name: str) -> str:
@@ -398,19 +395,21 @@ class AIScrumMaster:
 
     def generate_question(self, member_name: str, step: int) -> str:
         """
-        Return a fixed Scrum question, refined using Pinecone context, Mongo context, and cross-user context for contradiction-aware questioning.
-        Also includes semantically similar context from other users' tasks.
-        Now also includes the previous question and answer to avoid repetition.
+        Let the LLM decide the next question based on the full, updated context after each answer.
+        No manual marking of answered questions; the LLM should avoid repeats based on context.
         """
-        # Standard, fixed Scrum questions
-        base_questions = {
-            1: f"Hey {member_name}, how are you doing today? How are you feeling about your tasks?",
-            2: f"Could you update me on what you accomplished recently, and if you ran into any challenges?",
-            3: f"Great, thanks for the update! What's on your agenda for today?",
-            4: f"Are there any blockers or issues that you need help with?",
-            5: f"Anything else you'd like to add before we wrap up?"
-        }
-        base_question = base_questions.get(step, "Is there anything else you'd like to discuss?")
+        # Define standard Scrum questions
+        scrum_questions = [
+            "What did you work on since the last standup?",
+            "What are you planning to work on today?",
+            "Are there any blockers or impediments in your way?",
+            "Is there anything else you'd like to share with the team?"
+        ]
+        # Select the base question for this step, or default to the last question if out of range
+        if 0 <= step < len(scrum_questions):
+            base_question = scrum_questions[step]
+        else:
+            base_question = scrum_questions[-1]
 
         # Build the user's task context (from the current sprint)
         tasks_context = self.build_tasks_context(member_name)
@@ -492,11 +491,11 @@ Using the above information, generate a single, friendly, and concise question t
 
         # Fallback if LLM returns something empty (rare edge case)
         if not refined_question:
-            return base_question
+            return "Thank you, all questions have been answered!"
         return refined_question
 
     def add_user_response(self, member_name: str, response: str):
-        """Process and store the user response along with internal analysis."""
+        """Process and store the user response along with internal analysis and update context immediately."""
         # Add user message to conversation history
         self.conversation_history.append({
             "role": "user",
@@ -514,7 +513,8 @@ Provide:
 1. Key points (tasks done or in progress)
 2. Any blockers/impediments noted
 3. Suggested action items/follow-ups
-Please format your answer as a bullet list.
+4. Which standard scrum questions (tasks done, blockers, plans, anything else) does this response answer? Respond with a JSON object with keys: "tasks_done", "blockers", "plans", "other", and values true/false.
+Please format your answer as a bullet list, and include the JSON object at the end.
 """
         analysis_result = model.generate_content(analysis_prompt).text.strip()
         # Append the internal analysis as an assistant message.
@@ -524,6 +524,8 @@ Please format your answer as a bullet list.
             "content": analysis_message,
             "timestamp": datetime.now(timezone.utc)
         })
+
+
 
         # Store this conversation turn in Pinecone for future context
         self.store_context_in_pinecone(member_name, response, analysis_result)
@@ -580,11 +582,24 @@ Answer with a single word: "Complete" if the response is adequate, or "Incomplet
 
     def generate_summary(self) -> str:
         """Generate a summary of the standup."""
+        # Only use the last 10 messages for summary to avoid token overflow
+        recent_history = self.conversation_history[-10:]
+        # Gather all unique team members who participated in this standup
+        participants = set()
+        for msg in recent_history:
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                # Try to extract the member name from the message if available
+                # (Assumes the member name is in the message or can be tracked elsewhere)
+                # If not available, this will just collect all users who responded
+                pass  # You can enhance this logic if you track member names per message
+        if hasattr(self, "team_members"):
+            participants = self.team_members
         summary_prompt = f"""
 Summarize the following standup conversation:
 ---
-{self.conversation_history}
+{recent_history}
 ---
+For each of these team members, provide a summary of their updates (even if brief): {', '.join(participants) if participants else '[team members not found]'}
 Include:
 - Key updates per team member
 - Identified blockers

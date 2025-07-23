@@ -385,12 +385,11 @@ async def process_message(request: BotRequest):
     else:
         session["nothing_count"] = 0  # Reset if the response is meaningful
 
-    # Check response completeness
-    is_complete = session["scrum_master"].check_response_completeness(member, clean_response)
-    print(f"Cleaned response: {clean_response}, Completeness: {is_complete}")
+    # Force the bot to ask all standard Scrum questions for each user before moving to the next user
+    num_questions = 4  # Update this if you change the number of standard scrum questions
 
-    # If the response is complete or too many "nothing" responses
-    if is_complete or session["nothing_count"] >= 2:
+    # Check if the user has answered all questions or given too many trivial responses
+    if session["conversation_step"] >= num_questions or session["nothing_count"] >= 2:
         final_message = f"Thanks for the update, {member}."
 
         # Move to next team member
