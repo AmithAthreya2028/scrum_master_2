@@ -406,7 +406,7 @@ class AIScrumMaster:
             # (Assumes user responses are always after an assistant question for that user)
             if msg["role"] == "assistant" and member_name in msg["content"]:
                 member_history.append({"role": "assistant", "content": msg["content"]})
-            elif msg["role"] == "user":
+            elif msg["role"] == "user" and msg.get("member_name") == member_name:
                 member_history.append({"role": "user", "content": msg["content"]})
 
         # Format the Q&A history for the prompt
@@ -427,6 +427,9 @@ class AIScrumMaster:
         ]
         previous_context = "\n".join(f"- {summary}" for summary in previous_summaries) if previous_summaries else "No previous standup summaries available."
 
+        # Gather JIRA tasks context for this user in the current sprint
+        tasks_context = self.build_tasks_context(member_name)
+
         # Standard Scrum questions for reference
         scrum_questions = [
             "What did you work on since the last standup?",
@@ -438,6 +441,9 @@ class AIScrumMaster:
         prompt = f"""
 You are an AI Scrum Master conducting a standup with {member_name}.
 
+Here are the tasks assigned to {member_name} in the current sprint:
+{tasks_context}
+
 Here is the conversation so far in the current standup:
 {qa_history}
 
@@ -446,7 +452,7 @@ Here are summaries from previous standups for {member_name}:
 
 Your task:
 - Ask robust, insightful, and engaging questions.
-- Reference specific tasks, blockers, or updates from the user's history and previous standups.
+- Reference specific tasks, blockers, or updates from the user's history, previous standups, and the JIRA tasks listed above.
 - If the user gives a vague answer, politely ask for clarification or details.
 - Be conversational, friendly, and professional.
 - Avoid repeating questions or asking about topics already declined (e.g., said 'no', 'nothing', or similar).
@@ -474,6 +480,7 @@ Now, generate the next appropriate question for {member_name}, or end their stan
         self.conversation_history.append({
             "role": "user",
             "content": response,
+            "member_name": member_name,
             "timestamp": datetime.now(timezone.utc)
         })
 
