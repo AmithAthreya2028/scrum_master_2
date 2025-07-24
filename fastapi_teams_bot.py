@@ -168,7 +168,7 @@ async def select_board(request: BotRequest):
             "role": "assistant",
             "content": question
         })
-        session["scrum_master"].add_assistant_response(question)
+        session["scrum_master"].add_assistant_response(question, member)
 
         return BotResponse(
             activity_id=request.activity_id,
@@ -319,7 +319,7 @@ async def process_message(request: BotRequest):
             "content": f"{skipped_member} was skipped (not available)."
         })
         if session.get("scrum_master"):
-            session["scrum_master"].add_assistant_response(f"{skipped_member} was skipped (not available).")
+            session["scrum_master"].add_assistant_response(f"{skipped_member} was skipped (not available).", skipped_member)
         # Move to next team member
         session["current_member_index"] += 1
         session["conversation_step"] = 1
@@ -360,7 +360,7 @@ async def process_message(request: BotRequest):
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question)
+        session["scrum_master"].add_assistant_response(next_question, next_member)
         return BotResponse(
             activity_id=request.activity_id,
             text=f"{skipped_member} was skipped. Moving on to {next_member}.\n\n{next_question}",
@@ -439,7 +439,7 @@ async def process_message(request: BotRequest):
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question)
+        session["scrum_master"].add_assistant_response(next_question, next_member)
 
         return BotResponse(
             activity_id=request.activity_id,
@@ -459,7 +459,7 @@ async def process_message(request: BotRequest):
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question)
+        session["scrum_master"].add_assistant_response(next_question, member)
 
         return BotResponse(
             activity_id=request.activity_id,

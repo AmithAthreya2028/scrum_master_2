@@ -450,14 +450,15 @@ Here are summaries from previous standups for {member_name}:
 {previous_context}
 
 Your task:
-- Reference the JIRA tasks above when forming your questions.
+- For each JIRA task listed above, ask the user for a status update, blockers, and next steps, one task at a time.
+- Do NOT finish the standup until all tasks have been discussed, unless the user explicitly says they have nothing more to add for all tasks.
+- Reference the JIRA tasks above directly in your questions (use their IDs and summaries).
 - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
-- If a topic has been covered, move on to the next relevant Scrum question.
-- If all topics are covered or declined, thank the user and move to the next team member.
+- If a topic has been covered, move on to the next relevant Scrum question or task.
 - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
 - The standard Scrum questions are: {', '.join(scrum_questions)}
 
-Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
+Now, generate the next appropriate question for {member_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
 """
 
         refined_question = model.generate_content(prompt).text.strip()
@@ -510,7 +511,7 @@ Please format your answer as a bullet list, and include the JSON object at the e
         # Streamlit session state removed; this method should not be used in backend-only context
         raise NotImplementedError("generate_ai_response is not supported in backend-only mode.")
 
-    def add_assistant_response(self, response: str):
+    def add_assistant_response(self, response: str, member_name: str):
         """Store the assistant's response in conversation history."""
         self.conversation_history.append({
             "role": "assistant",
