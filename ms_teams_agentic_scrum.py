@@ -442,11 +442,20 @@ Here are summaries from previous standups for {member_name}:
 {previous_context}
 
 Your task:
-- Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+- Ask robust, insightful, and engaging questions.
+- Reference specific tasks, blockers, or updates from the user's history and previous standups.
+- If the user gives a vague answer, politely ask for clarification or details.
+- Be conversational, friendly, and professional.
+- Avoid repeating questions or asking about topics already declined (e.g., said 'no', 'nothing', or similar).
 - If a topic has been covered, move on to the next relevant Scrum question.
 - If all topics are covered or declined, thank the user and move to the next team member.
 - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
 - The standard Scrum questions are: {', '.join(scrum_questions)}
+
+Examples of robust questions:
+- "Yesterday you mentioned working on the login middleware. What challenges did you face, and how did you overcome them?"
+- "You said there were no blockers today. Is there anything the team can help you with to speed up your progress?"
+- "Last standup, you planned to finish the SMD-1 integration. How did that go, and are there any follow-ups needed?"
 
 Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
 """
