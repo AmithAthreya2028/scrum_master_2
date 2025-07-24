@@ -404,10 +404,8 @@ class AIScrumMaster:
         for msg in self.conversation_history:
             # Only include messages relevant to this member in this standup
             # (Assumes user responses are always after an assistant question for that user)
-            if msg["role"] == "assistant" and member_name in msg["content"]:
-                member_history.append({"role": "assistant", "content": msg["content"]})
-            elif msg["role"] == "user" and msg.get("member_name") == member_name:
-                member_history.append({"role": "user", "content": msg["content"]})
+            if msg.get("member_name") == member_name:
+                member_history.append({"role": msg["role"], "content": msg["content"]})
 
         # Format the Q&A history for the prompt
         qa_history = ""
@@ -438,24 +436,29 @@ class AIScrumMaster:
             "Is there anything else you'd like to share with the team?"
         ]
 
+        tasks_context = self.build_tasks_context(member_name)
         prompt = f"""
-        You are an AI Scrum Master conducting a standup with {member_name}.
+You are an AI Scrum Master conducting a standup with {member_name}.
 
-        Here is the conversation so far in the current standup:
-        {qa_history}
+Here are the tasks assigned to {member_name} in the current sprint:
+{tasks_context}
 
-        Here are summaries from previous standups for {member_name}:
-        {previous_context}
+Here is the conversation so far in the current standup:
+{qa_history}
 
-        Your task:
-        - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
-        - If a topic has been covered, move on to the next relevant Scrum question.
-        - If all topics are covered or declined, thank the user and move to the next team member.
-        - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
-        - The standard Scrum questions are: {', '.join(scrum_questions)}
+Here are summaries from previous standups for {member_name}:
+{previous_context}
 
-        Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
-        """
+Your task:
+- Reference the JIRA tasks above when forming your questions.
+- Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+- If a topic has been covered, move on to the next relevant Scrum question.
+- If all topics are covered or declined, thank the user and move to the next team member.
+- Only ask a follow-up if clarification is genuinely needed and has not already been declined.
+- The standard Scrum questions are: {', '.join(scrum_questions)}
+
+Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
+"""
 
         refined_question = model.generate_content(prompt).text.strip()
         if not refined_question:
@@ -512,6 +515,7 @@ Please format your answer as a bullet list, and include the JSON object at the e
         self.conversation_history.append({
             "role": "assistant",
             "content": response,
+            "member_name": member_name,
             "timestamp": datetime.now(timezone.utc)
         })
 
