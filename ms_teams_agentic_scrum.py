@@ -395,101 +395,63 @@ class AIScrumMaster:
 
     def generate_question(self, member_name: str, step: int) -> str:
         """
-        Let the LLM decide the next question based on the full, updated context after each answer.
-        No manual marking of answered questions; the LLM should avoid repeats based on context.
+        Generate the next appropriate question for the user, using the full conversation history
+        for this user in the current standup, and summaries from previous standups, with explicit
+        instructions to avoid repeating topics.
         """
-        # Define standard Scrum questions
+        # Gather all Q&A for this member in the current standup
+        member_history = []
+        for msg in self.conversation_history:
+            # Only include messages relevant to this member in this standup
+            # (Assumes user responses are always after an assistant question for that user)
+            if msg["role"] == "assistant" and member_name in msg["content"]:
+                member_history.append({"role": "assistant", "content": msg["content"]})
+            elif msg["role"] == "user":
+                member_history.append({"role": "user", "content": msg["content"]})
+
+        # Format the Q&A history for the prompt
+        qa_history = ""
+        for msg in member_history:
+            if msg["role"] == "assistant":
+                qa_history += f"Assistant asked: {msg['content']}\n"
+            elif msg["role"] == "user":
+                qa_history += f"{member_name} replied: {msg['content']}\n"
+
+        # Gather previous standup summaries for this user
+        previous_standups = get_previous_standups(self.user_id, limit=3)
+        previous_summaries = [
+            doc.get("summary") for doc in previous_standups if doc.get("summary")
+        ]
+        previous_context = "\n".join(f"- {summary}" for summary in previous_summaries) if previous_summaries else "No previous standup summaries available."
+
+        # Standard Scrum questions for reference
         scrum_questions = [
             "What did you work on since the last standup?",
             "What are you planning to work on today?",
             "Are there any blockers or impediments in your way?",
             "Is there anything else you'd like to share with the team?"
         ]
-        # Select the base question for this step, or default to the last question if out of range
-        if 0 <= step < len(scrum_questions):
-            base_question = scrum_questions[step]
-        else:
-            base_question = scrum_questions[-1]
-
-        # Build the user's task context (from the current sprint)
-        tasks_context = self.build_tasks_context(member_name)
-        pinecone_context = self.get_contextual_history(member_name)
-        mongo_context = self.get_mongo_context(member_name)
-
-        # Try to get the current task_key and task description for this member
-        task_key = None
-        task_description = None
-        if self.current_sprint:
-            member_tasks = self.get_member_tasks(member_name)
-            if member_tasks:
-                task_key = member_tasks[0].get('Key')
-                # Use summary or description for semantic search
-                task_description = member_tasks[0].get('Summary') or member_tasks[0].get('Description')
-
-        # Fetch cross-user context for this task (exclude current user)
-        cross_user_contexts = self.fetch_cross_user_context(task_key, exclude_user_id=self.user_id, top_k=5) if task_key else []
-        cross_user_str = ""
-        if cross_user_contexts:
-            cross_user_str = "\nContradictory or additional context from other users for this task:\n" + "\n".join([
-                f"- {c.get('member_name', 'Unknown')}: {c.get('text', '')}" for c in cross_user_contexts
-            ])
-
-        # Fetch semantically similar context from other users' tasks (exclude current user)
-        semantic_contexts = []
-        semantic_context_str = ""
-        if task_description:
-            semantic_contexts = self.fetch_semantic_cross_user_context(task_description, exclude_user_id=self.user_id, top_k=5)
-        if semantic_contexts:
-            semantic_context_str = "\nRelated context from other users working on similar tasks:\n" + "\n".join([
-                f"- {c.get('member_name', 'Unknown')}: {c.get('text', '')}" for c in semantic_contexts
-            ])
-
-        # Get previous question and answer for this member
-        previous_question = None
-        previous_answer = None
-        for msg in reversed(self.conversation_history):
-            if msg["role"] == "assistant" and previous_question is None:
-                previous_question = msg["content"]
-            elif msg["role"] == "user" and previous_answer is None:
-                previous_answer = msg["content"]
-            if previous_question and previous_answer:
-                break
 
         prompt = f"""
-You are an AI Scrum Master named AgileBot conducting a standup with {member_name} at step {step}.
+You are an AI Scrum Master conducting a standup with {member_name}.
 
-Here is the standard Scrum question you should ask:
-"{base_question}"
+Here is the conversation so far in the current standup:
+{qa_history}
 
-Previous question asked:
-"{previous_question}"
+Here are summaries from previous standups for {member_name}:
+{previous_context}
 
-User's previous answer:
-"{previous_answer}"
+Your task:
+- Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+- If a topic has been covered, move on to the next relevant Scrum question.
+- If all topics are covered or declined, thank the user and move to the next team member.
+- Only ask a follow-up if clarification is genuinely needed and has not already been declined.
+- The standard Scrum questions are: {', '.join(scrum_questions)}
 
-Tasks context for {member_name}:
-{tasks_context}
-
-Recent conversation context from Pinecone:
-{pinecone_context}
-
-Historical context from MongoDB:
-{mongo_context}
-
-{cross_user_str}
-
-{semantic_context_str}
-
-Using the above information, generate a single, friendly, and concise question that incorporates all relevant details.
-- Do NOT repeat questions that have already been answered.
-- If the user has already addressed a blocker or task, move on to the next relevant topic.
-- If clarification is needed, ask a follow-up, otherwise proceed to the next standup question.
+Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
 """
 
-        # Call the Gemini model to generate a refined question
         refined_question = model.generate_content(prompt).text.strip()
-
-        # Fallback if LLM returns something empty (rare edge case)
         if not refined_question:
             return "Thank you, all questions have been answered!"
         return refined_question
