@@ -439,35 +439,23 @@ class AIScrumMaster:
         ]
 
         prompt = f"""
-You are an AI Scrum Master conducting a standup with {member_name}.
+        You are an AI Scrum Master conducting a standup with {member_name}.
 
-Here are the tasks assigned to {member_name} in the current sprint:
-{tasks_context}
+        Here is the conversation so far in the current standup:
+        {qa_history}
 
-Here is the conversation so far in the current standup:
-{qa_history}
+        Here are summaries from previous standups for {member_name}:
+        {previous_context}
 
-Here are summaries from previous standups for {member_name}:
-{previous_context}
+        Your task:
+        - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+        - If a topic has been covered, move on to the next relevant Scrum question.
+        - If all topics are covered or declined, thank the user and move to the next team member.
+        - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
+        - The standard Scrum questions are: {', '.join(scrum_questions)}
 
-Your task:
-- Ask robust, insightful, and engaging questions.
-- Reference specific tasks, blockers, or updates from the user's history, previous standups, and the JIRA tasks listed above.
-- If the user gives a vague answer, politely ask for clarification or details.
-- Be conversational, friendly, and professional.
-- Avoid repeating questions or asking about topics already declined (e.g., said 'no', 'nothing', or similar).
-- If a topic has been covered, move on to the next relevant Scrum question.
-- If all topics are covered or declined, thank the user and move to the next team member.
-- Only ask a follow-up if clarification is genuinely needed and has not already been declined.
-- The standard Scrum questions are: {', '.join(scrum_questions)}
-
-Examples of robust questions:
-- "Yesterday you mentioned working on the login middleware. What challenges did you face, and how did you overcome them?"
-- "You said there were no blockers today. Is there anything the team can help you with to speed up your progress?"
-- "Last standup, you planned to finish the SMD-1 integration. How did that go, and are there any follow-ups needed?"
-
-Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
-"""
+        Now, generate the next appropriate question for {member_name}, or end their standup if all topics are covered.
+        """
 
         refined_question = model.generate_content(prompt).text.strip()
         if not refined_question:
