@@ -416,6 +416,9 @@ class AIScrumMaster:
                 qa_history += f"Assistant asked: {msg['content']}\n"
             elif msg["role"] == "user":
                 qa_history += f"{member_name} replied: {msg['content']}\n"
+        # If there is no prior conversation for this user in this standup, make it explicit
+        if not qa_history:
+            qa_history = f"No prior conversation history for {member_name} in this standup. This is the first question for {member_name}."
 
         # Gather previous standup summaries for this user
         previous_standups = get_previous_standups(self.user_id, limit=3)
