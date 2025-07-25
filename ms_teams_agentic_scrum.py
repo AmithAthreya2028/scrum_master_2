@@ -560,8 +560,8 @@ Answer with a single word: "Complete" if the response is adequate, or "Incomplet
 
     def generate_summary(self) -> str:
         """Generate a summary of the standup."""
-        # Use the last 30 messages for summary to avoid token overflow but capture more users
-        recent_history = self.conversation_history[-30:]
+        # Use the full conversation history for summary so all participants are included
+        recent_history = self.conversation_history
         # Gather all unique team members who participated in this standup
         participants = set()
         user_updates = {}
