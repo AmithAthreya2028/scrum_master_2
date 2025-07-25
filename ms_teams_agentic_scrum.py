@@ -556,24 +556,28 @@ Answer with a single word: "Complete" if the response is adequate, or "Incomplet
 
     def generate_summary(self) -> str:
         """Generate a summary of the standup."""
-        # Only use the last 10 messages for summary to avoid token overflow
-        recent_history = self.conversation_history[-10:]
+        # Use the last 30 messages for summary to avoid token overflow but capture more users
+        recent_history = self.conversation_history[-30:]
         # Gather all unique team members who participated in this standup
         participants = set()
+        user_updates = {}
         for msg in recent_history:
-            if isinstance(msg, dict) and msg.get("role") == "user":
-                # Try to extract the member name from the message if available
-                # (Assumes the member name is in the message or can be tracked elsewhere)
-                # If not available, this will just collect all users who responded
-                pass  # You can enhance this logic if you track member names per message
+            if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("member_name"):
+                participants.add(msg["member_name"])
+                user_updates.setdefault(msg["member_name"], []).append(msg["content"])
         if hasattr(self, "team_members"):
-            participants = self.team_members
+            all_team_members = self.team_members
+        else:
+            all_team_members = participants
+
         summary_prompt = f"""
 Summarize the following standup conversation:
 ---
 {recent_history}
 ---
-For each of these team members, provide a summary of their updates (even if brief): {', '.join(participants) if participants else '[team members not found]'}
+Team members expected: {', '.join(all_team_members)}
+Team members who participated: {', '.join(participants)}
+For each participant, summarize their updates (even if brief). For team members who did not participate, note "no update provided."
 Include:
 - Key updates per team member
 - Identified blockers

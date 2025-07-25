@@ -127,9 +127,27 @@ async def select_board(request: BotRequest):
     try:
         board_id = int(clean_text)
     except ValueError:
+        boards = get_boards()
+        board_text = "Please select a board by sending its ID:\n"
+        for board in boards:
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
-            text="Invalid board ID. Please send a numeric ID.",
+            text="Invalid board ID. Please send a numeric ID.\n\n" + board_text,
+            session_id=session_id,
+            requires_input=True
+        )
+
+    # Fetch available boards and check validity
+    boards = get_boards()
+    valid_board_ids = {board.get('id') for board in boards}
+    if board_id not in valid_board_ids:
+        board_text = "Please select a board by sending its ID:\n"
+        for board in boards:
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+        return BotResponse(
+            activity_id=request.activity_id,
+            text=f"Invalid board ID. Please select from the following boards:\n\n{board_text}",
             session_id=session_id,
             requires_input=True
         )
@@ -177,9 +195,13 @@ async def select_board(request: BotRequest):
             requires_input=True
         )
     else:
+        boards = get_boards()
+        board_text = "Please select a board by sending its ID:\n"
+        for board in boards:
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
-            text="Failed to initialize sprint data. Please try another board.",
+            text="Failed to initialize sprint data. Please try another board.\n\n" + board_text,
             session_id=session_id,
             requires_input=True
         )
