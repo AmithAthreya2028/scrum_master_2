@@ -330,6 +330,10 @@ class AIScrumMaster:
                     if assignee and assignee != "Unassigned":
                         self.team_members.add(assignee)
                         store_user(assignee, assignee)
+                # Fallback: if no team members found, allow the current user to proceed
+                if not self.team_members:
+                    print("No team members found in the active sprint. Allowing current user to proceed.")
+                    self.team_members.add(self.user_id)
                 return True
         if not self.team_members:
             print("Warning: No team members found in the active sprint. Standup will skip to summary.")
