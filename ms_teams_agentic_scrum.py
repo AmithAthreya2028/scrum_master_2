@@ -401,7 +401,7 @@ class AIScrumMaster:
         """
         Generate the next appropriate question for the user, using the full conversation history
         for this user in the current standup, and summaries from previous standups, with explicit
-        instructions to avoid repeating topics.
+        instructions to avoid repeating topics. Also, reference context from other users who have worked on the same task.
         """
         # Gather all Q&A for this member in the current standup
         member_history = []
@@ -431,6 +431,28 @@ class AIScrumMaster:
 
         # Gather JIRA tasks context for this user in the current sprint
         tasks_context = self.build_tasks_context(member_name)
+        member_tasks = self.get_member_tasks(member_name)
+
+        # Fetch cross-user context for each task
+        cross_user_contexts = []
+        for task in member_tasks:
+            task_key = task.get('Key')
+            if task_key:
+                cross_context = self.fetch_cross_user_context(task_key, exclude_user_id=self.user_id)
+                if cross_context:
+                    cross_user_contexts.append({
+                        "task_key": task_key,
+                        "context": cross_context
+                    })
+
+        # Format cross-user context for the prompt
+        cross_user_context_str = ""
+        for item in cross_user_contexts:
+            cross_user_updates = "\n".join(
+                f"- {ctx.get('member_name', 'Unknown')}: {ctx.get('text', '')}"
+                for ctx in item["context"]
+            )
+            cross_user_context_str += f"\nOther team members' updates for task {item['task_key']}:\n{cross_user_updates}\n"
 
         # Standard Scrum questions for reference
         scrum_questions = [
@@ -440,30 +462,32 @@ class AIScrumMaster:
             "Is there anything else you'd like to share with the team?"
         ]
 
-        tasks_context = self.build_tasks_context(member_name)
         prompt = f"""
-You are an AI Scrum Master conducting a standup with {member_name}.
+    You are an AI Scrum Master conducting a standup with {member_name}.
 
-Here are the tasks assigned to {member_name} in the current sprint:
-{tasks_context}
+    Here are the tasks assigned to {member_name} in the current sprint:
+    {tasks_context}
 
-Here is the conversation so far in the current standup:
-{qa_history}
+    {cross_user_context_str}
 
-Here are summaries from previous standups for {member_name}:
-{previous_context}
+    Here is the conversation so far in the current standup:
+    {qa_history}
 
-Your task:
-- For each JIRA task listed above, ask the user for a status update, blockers, and next steps, one task at a time.
-- Do NOT finish the standup until all tasks have been discussed, unless the user explicitly says they have nothing more to add for all tasks.
-- Reference the JIRA tasks above directly in your questions (use their IDs and summaries).
-- Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
-- If a topic has been covered, move on to the next relevant Scrum question or task.
-- Only ask a follow-up if clarification is genuinely needed and has not already been declined.
-- The standard Scrum questions are: {', '.join(scrum_questions)}
+    Here are summaries from previous standups for {member_name}:
+    {previous_context}
 
-Now, generate the next appropriate question for {member_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
-"""
+    Your task:
+    - For each JIRA task listed above, ask the user for a status update, blockers, and next steps, one task at a time.
+    - Reference what other team members have said about the same task if available.
+    - Do NOT finish the standup until all tasks have been discussed, unless the user explicitly says they have nothing more to add for all tasks.
+    - Reference the JIRA tasks above directly in your questions (use their IDs and summaries).
+    - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+    - If a topic has been covered, move on to the next relevant Scrum question or task.
+    - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
+    - The standard Scrum questions are: {', '.join(scrum_questions)}
+
+    Now, generate the next appropriate question for {member_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
+    """
 
         refined_question = model.generate_content(prompt).text.strip()
         if not refined_question:
