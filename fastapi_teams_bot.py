@@ -229,6 +229,7 @@ async def process_message(request: BotRequest):
             )
         # Only respond to explicit start commands
         if clean_response.lower() in ["start", "start standup"]:
+            session["selected_board_id"] = None  # Reset board selection for new standup
             boards = get_boards()
             if not boards:
                 return BotResponse(
