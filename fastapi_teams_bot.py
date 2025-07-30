@@ -83,35 +83,85 @@ async def list_boards():
 @app.post("/start", response_model=BotResponse)
 async def start_session(request: BotRequest):
     """Start a new bot session"""
-    # Ensure session_id is a string (not None)
     safe_session_id = request.session_id if request.session_id is not None else str(uuid.uuid4())
     safe_user_id = request.user_id if request.user_id is not None else "unknown_user"
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
-    # Initialize response
-    response = BotResponse(
-        activity_id=request.activity_id,
-        text="Welcome to AI Scrum Master! Let me fetch the available boards.",
-        session_id=session_id,
-        requires_input=False
-    )
+    # Try to import get_last_selected_board from ms_teams_agentic_scrum
+    try:
+        from ms_teams_agentic_scrum import get_last_selected_board
+        last_board_id = get_last_selected_board(safe_user_id)
+    except Exception:
+        last_board_id = None
 
-    # Fetch boards
+    if last_board_id:
+        session["selected_board_id"] = last_board_id
+        # Initialize scrum master and start standup as if board was just selected
+        session["scrum_master"] = AIScrumMaster(safe_user_id)
+        if session["scrum_master"].initialize_sprint_data(last_board_id):
+            session["team_members"] = list(session["scrum_master"].team_members)
+            if not session["team_members"]:
+                return BotResponse(
+                    activity_id=request.activity_id,
+                    text="No team members found in the active sprint for this board. Please ensure issues are assigned in JIRA.",
+                    session_id=session_id,
+                    requires_input=True
+                )
+            session["standup_started"] = True
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["nothing_count"] = 0
+            session["show_summary"] = False
+
+            member = session["team_members"][0]
+            question = session["scrum_master"].generate_question(
+                member,
+                session["conversation_step"]
+            )
+            session["messages"].append({
+                "role": "assistant",
+                "content": question
+            })
+            session["scrum_master"].add_assistant_response(question, member)
+
+            return BotResponse(
+                activity_id=request.activity_id,
+                text=f"Welcome back! Using your last selected board (ID: {last_board_id}).\nStarting standup with {member}.\n\n{question}",
+                session_id=session_id,
+                requires_input=True
+            )
+        else:
+            boards = get_boards()
+            board_text = "Please select a board by sending its ID:\n"
+            for board in boards:
+                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Failed to initialize sprint data. Please try another board.\n\n" + board_text,
+                session_id=session_id,
+                requires_input=True
+            )
+
+    # If no last board, prompt for selection as before
     boards = get_boards()
-
     if not boards:
-        response.text = "No boards available. Please check your JIRA configuration."
-        return response
-
-    # Format boards as text
+        return BotResponse(
+            activity_id=request.activity_id,
+            text="No boards available. Please check your JIRA configuration.",
+            session_id=session_id,
+            requires_input=False
+        )
     board_text = "Please select a board by sending its ID:\n"
     for board in boards:
         board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
 
-    response.text = board_text
-    response.requires_input = True
-
-    return response
+    return BotResponse(
+        activity_id=request.activity_id,
+        text="Welcome to AI Scrum Master! Let me fetch the available boards.\n\n" + board_text,
+        session_id=session_id,
+        requires_input=True
+    )
 
 @app.post("/select_board", response_model=BotResponse)
 async def select_board(request: BotRequest):
@@ -154,6 +204,10 @@ async def select_board(request: BotRequest):
 
     # Save selected board
     session["selected_board_id"] = board_id
+
+    # Store last selected board in MongoDB
+    from ms_teams_agentic_scrum import set_last_selected_board
+    set_last_selected_board(safe_user_id, board_id)
 
     # Initialize scrum master and get team members
     session["scrum_master"] = AIScrumMaster(safe_user_id)
@@ -295,6 +349,20 @@ async def process_message(request: BotRequest):
     import re
     # Clean user response of Teams mention markup and bot name
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
+
+    # Add 'change board' command to allow user to reset board selection
+    if clean_response.lower() in ["change board", "switch board"]:
+        session["selected_board_id"] = None
+        boards = get_boards()
+        board_text = "Please select a board by sending its ID:\n"
+        for board in boards:
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+        return BotResponse(
+            activity_id=request.activity_id,
+            text="Board selection reset. Please select a new board:\n\n" + board_text,
+            session_id=session_id,
+            requires_input=True
+        )
 
     # Command to end the standup early
     if clean_response.lower() in ["end standup", "end", "finish"]:

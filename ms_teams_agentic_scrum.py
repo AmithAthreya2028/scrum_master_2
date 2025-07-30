@@ -177,6 +177,21 @@ def store_user(user_id: str, display_name: str):
     except DuplicateKeyError:
         print(f"User with id {user_id} already exists.")
 
+def get_last_selected_board(user_id: str) -> int | None:
+    """Retrieve the last selected board for a user from MongoDB."""
+    doc = users_collection.find_one({"user_id": user_id})
+    if doc and "last_board_id" in doc:
+        return doc["last_board_id"]
+    return None
+
+def set_last_selected_board(user_id: str, board_id: int):
+    """Store the last selected board for a user in MongoDB."""
+    users_collection.update_one(
+        {"user_id": user_id},
+        {"$set": {"last_board_id": board_id}},
+        upsert=True
+    )
+
 def store_conversation(conversation_doc: dict):
     """Store a conversation document into MongoDB."""
     conversation_doc["date"] = datetime.now(timezone.utc)
