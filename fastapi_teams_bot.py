@@ -117,20 +117,21 @@ async def start_session(request: BotRequest):
             session["nothing_count"] = 0
             session["show_summary"] = False
 
-            member = session["team_members"][0]
+            member_tuple = session["team_members"][0]
+            member_id, member_display_name = member_tuple
             question = session["scrum_master"].generate_question(
-                member,
+                member_tuple,
                 session["conversation_step"]
             )
             session["messages"].append({
                 "role": "assistant",
                 "content": question
             })
-            session["scrum_master"].add_assistant_response(question, member)
+            session["scrum_master"].add_assistant_response(question, member_tuple)
 
             return BotResponse(
                 activity_id=request.activity_id,
-                text=f"Welcome back! Using your last selected board (ID: {last_board_id}).\nStarting standup with {member}.\n\n{question}",
+                text=f"Welcome back! Using your last selected board (ID: {last_board_id}).\nStarting standup with {member_display_name}.\n\n{question}",
                 session_id=session_id,
                 requires_input=True
             )
@@ -233,9 +234,10 @@ async def select_board(request: BotRequest):
         session["nothing_count"] = 0
         session["show_summary"] = False
 
-        member = session["team_members"][0]
+        member_tuple = session["team_members"][0]
+        member_id, member_display_name = member_tuple
         question = session["scrum_master"].generate_question(
-            member,
+            member_tuple,
             session["conversation_step"]
         )
 
@@ -243,11 +245,11 @@ async def select_board(request: BotRequest):
             "role": "assistant",
             "content": question
         })
-        session["scrum_master"].add_assistant_response(question, member)
+        session["scrum_master"].add_assistant_response(question, member_tuple)
 
         return BotResponse(
             activity_id=request.activity_id,
-            text=f"Starting standup with {member}.\n\n{question}",
+            text=f"Starting standup with {member_display_name}.\n\n{question}",
             session_id=session_id,
             requires_input=True
         )
@@ -270,7 +272,6 @@ async def process_message(request: BotRequest):
     """Process a message in an ongoing standup"""
     safe_session_id = request.session_id if request.session_id is not None else str(uuid.uuid4())
     safe_user_id = request.user_id if request.user_id is not None else "unknown_user"
-    print(f"[Message Endpoint] Incoming message from user_id: {safe_user_id}")
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
     if not session["standup_started"]:
@@ -347,7 +348,8 @@ async def process_message(request: BotRequest):
         )
 
     # Handle response for the current team member
-    member = team_members[current_index]
+    member_tuple = team_members[current_index]
+    member_id, member_display_name = member_tuple
     response = request.text
 
     import re
@@ -447,13 +449,13 @@ async def process_message(request: BotRequest):
 
     # Skip user functionality
     if clean_response.lower() in ["skip", "skip user", "not available", "on leave", "sick leave"]:
-        skipped_member = member
+        skipped_member_id, skipped_member_display_name = member_tuple
         session["messages"].append({
             "role": "system",
-            "content": f"{skipped_member} was skipped (not available)."
+            "content": f"{skipped_member_display_name} was skipped (not available)."
         })
         if session.get("scrum_master"):
-            session["scrum_master"].add_assistant_response(f"{skipped_member} was skipped (not available).", skipped_member)
+            session["scrum_master"].add_assistant_response(f"{skipped_member_display_name} was skipped (not available).", member_tuple)
         # Move to next team member
         session["current_member_index"] += 1
         session["conversation_step"] = 1
@@ -485,19 +487,20 @@ async def process_message(request: BotRequest):
             )
 
         # Get the next member
-        next_member = team_members[session["current_member_index"]]
+        next_member_tuple = team_members[session["current_member_index"]]
+        next_member_id, next_member_display_name = next_member_tuple
         next_question = session["scrum_master"].generate_question(
-            next_member,
+            next_member_tuple,
             session["conversation_step"]
         )
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question, next_member)
+        session["scrum_master"].add_assistant_response(next_question, next_member_tuple)
         return BotResponse(
             activity_id=request.activity_id,
-            text=f"{skipped_member} was skipped. Moving on to {next_member}.\n\n{next_question}",
+            text=f"{skipped_member_display_name} was skipped. Moving on to {next_member_display_name}.\n\n{next_question}",
             session_id=session_id,
             requires_input=True
         )
@@ -575,9 +578,10 @@ async def process_message(request: BotRequest):
             )
 
         # Get the next member
-        next_member = team_members[session["current_member_index"]]
+        next_member_tuple = team_members[session["current_member_index"]]
+        next_member_id, next_member_display_name = next_member_tuple
         next_question = session["scrum_master"].generate_question(
-            next_member,
+            next_member_tuple,
             session["conversation_step"]
         )
 
@@ -585,31 +589,27 @@ async def process_message(request: BotRequest):
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question, next_member)
+        session["scrum_master"].add_assistant_response(next_question, next_member_tuple)
 
         return BotResponse(
             activity_id=request.activity_id,
-            text=f"{final_message} I'll now move on to {next_member}.\n\n{next_question}",
+            text=f"{final_message} I'll now move on to {next_member_display_name}.\n\n{next_question}",
             session_id=session_id,
             requires_input=True
         )
     else:
         # Continue with the same member
         session["conversation_step"] += 1
-        # Build context including interventions
-        context_for_prompt = build_context_for_question(member)
-        # Pass context to question generator (modify generate_question to accept context if needed)
         next_question = session["scrum_master"].generate_question(
-            member,
+            member_tuple,
             session["conversation_step"]
         )
-        # Optionally, you can modify generate_question to accept context_for_prompt as an argument
 
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question, member)
+        session["scrum_master"].add_assistant_response(next_question, member_tuple)
 
         return BotResponse(
             activity_id=request.activity_id,
@@ -666,8 +666,7 @@ async def teams_webhook(request: Request):
         # Extract user and conversation identifiers
         from_obj = data.get("from", {})
         user_id = from_obj.get("id", "unknown")
-        user_name = from_obj.get("name", "unknown")
-        print(f"[Webhook] Incoming message from user_id: {user_id}, user_name: {user_name}")
+        # user_name = from_obj.get("name", "unknown")
 
         conversation = data.get("conversation", {})
         conversation_id = conversation.get("id", "unknown")
