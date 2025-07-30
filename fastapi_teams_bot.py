@@ -270,6 +270,7 @@ async def process_message(request: BotRequest):
     """Process a message in an ongoing standup"""
     safe_session_id = request.session_id if request.session_id is not None else str(uuid.uuid4())
     safe_user_id = request.user_id if request.user_id is not None else "unknown_user"
+    print(f"[Message Endpoint] Incoming message from user_id: {safe_user_id}")
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
     if not session["standup_started"]:
@@ -665,7 +666,8 @@ async def teams_webhook(request: Request):
         # Extract user and conversation identifiers
         from_obj = data.get("from", {})
         user_id = from_obj.get("id", "unknown")
-        # user_name = from_obj.get("name", "unknown")
+        user_name = from_obj.get("name", "unknown")
+        print(f"[Webhook] Incoming message from user_id: {user_id}, user_name: {user_name}")
 
         conversation = data.get("conversation", {})
         conversation_id = conversation.get("id", "unknown")
