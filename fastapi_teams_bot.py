@@ -24,6 +24,9 @@ app = FastAPI(title="MS Teams Agentic Scrum")
 # In production, use a database or Redis for persistence
 bot_sessions = {}
 
+# Scrum Master ID (could be set via env or config, here hardcoded for demo)
+SCRUM_MASTER_ID = os.getenv("SCRUM_MASTER_ID", "scrum_master_id")  # Replace with actual Teams user ID/email
+
 class BotRequest(BaseModel):
     activity_id: str
     activity_type: str
@@ -350,6 +353,45 @@ async def process_message(request: BotRequest):
     # Clean user response of Teams mention markup and bot name
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
+    # --- SCRUM MASTER INTERVENTION HANDLING ---
+    # If the sender is the Scrum Master, record intervention and pause bot questions
+    if safe_user_id == SCRUM_MASTER_ID:
+        # Record intervention in session history
+        session["messages"].append({
+            "role": "scrum_master",
+            "content": clean_response,
+            "member_name": team_members[current_index] if current_index < len(team_members) else "unknown",
+            "timestamp": None
+        })
+        # Store in Pinecone for semantic context
+        if session.get("scrum_master"):
+            session["scrum_master"].store_context_in_pinecone(
+                member_name=team_members[current_index] if current_index < len(team_members) else "unknown",
+                response=clean_response,
+                analysis_result="[Scrum Master Intervention]"
+            )
+        # If Scrum Master signals resume, set intervention mode off
+        if clean_response.lower() in ["resume standup", "done", "continue"]:
+            session["scrum_master_intervention"] = False
+            # Bot resumes normal questioning below
+        else:
+            # Set intervention mode on and pause bot questions
+            session["scrum_master_intervention"] = True
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Scrum Master intervention recorded. Type 'resume standup' to continue.",
+                session_id=session_id,
+                requires_input=True
+            )
+    # If intervention mode is on, do not ask bot questions
+    if session.get("scrum_master_intervention", False):
+        return BotResponse(
+            activity_id=request.activity_id,
+            text="Waiting for Scrum Master to finish intervention. Type 'resume standup' to continue.",
+            session_id=session_id,
+            requires_input=True
+        )
+
     # Add 'change board' command to allow user to reset board selection
     if clean_response.lower() in ["change board", "switch board"]:
         session["selected_board_id"] = None
@@ -479,6 +521,18 @@ async def process_message(request: BotRequest):
     # Force the bot to ask all standard Scrum questions for each user before moving to the next user
     num_questions = 4  # Update this if you change the number of standard scrum questions
 
+    # --- INTEGRATE SCRUM MASTER INTERVENTIONS INTO CONTEXT ---
+    # Build context for next question including interventions
+    def build_context_for_question(member_name):
+        history = [
+            msg for msg in session["messages"]
+            if msg.get("member_name") == member_name and msg["role"] in ["user", "scrum_master"]
+        ]
+        context = "\n".join(
+            f"{msg['role'].capitalize()}: {msg['content']}" for msg in history
+        )
+        return context
+
     # Check if the user has answered all questions or given too many trivial responses
     if session["conversation_step"] >= num_questions or session["nothing_count"] >= 2:
         final_message = f"Thanks for the update, {member}."
@@ -541,10 +595,14 @@ async def process_message(request: BotRequest):
     else:
         # Continue with the same member
         session["conversation_step"] += 1
+        # Build context including interventions
+        context_for_prompt = build_context_for_question(member)
+        # Pass context to question generator (modify generate_question to accept context if needed)
         next_question = session["scrum_master"].generate_question(
             member,
             session["conversation_step"]
         )
+        # Optionally, you can modify generate_question to accept context_for_prompt as an argument
 
         session["messages"].append({
             "role": "assistant",
