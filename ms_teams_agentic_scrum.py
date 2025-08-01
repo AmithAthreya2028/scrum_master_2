@@ -342,36 +342,30 @@ class AIScrumMaster:
                 self.current_sprint = active_sprints[0]
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
-                    if isinstance(assignee, dict):
-                        member_id = assignee.get('accountId')
-                        member_display_name = assignee.get('displayName')
-                        if member_id and member_display_name:
-                            self.team_members.add((member_id, member_display_name))
-                            store_user(member_id, member_display_name)
+                    if assignee and assignee != "Unassigned":
+                        self.team_members.add(assignee)
+                        store_user(assignee, assignee)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
-                    # Fallback to current user, ensuring tuple format
-                    self.team_members.add((self.user_id, "Current User"))
+                    self.team_members.add(self.user_id)
                 return True
         if not self.team_members:
             print("Warning: No team members found in the active sprint. Standup will skip to summary.")
         return False
 
-    def get_member_tasks(self, member_id: str) -> List[Dict]:
+    def get_member_tasks(self, member_name: str) -> List[Dict]:
         """Get active tasks for a team member from the current sprint."""
         if not self.current_sprint:
             return []
-        member_tasks = []
-        for issue in self.current_sprint.get('issues', []):
-            assignee = issue.get('Assignee')
-            if isinstance(assignee, dict) and assignee.get('accountId') == member_id:
-                member_tasks.append(issue)
-        return member_tasks
+        return [
+            issue for issue in self.current_sprint['issues']
+            if issue.get('Assignee') == member_name
+        ]
 
-    def build_tasks_context(self, member_id: str) -> str:
+    def build_tasks_context(self, member_name: str) -> str:
         """Build context string for member's tasks."""
-        tasks = self.get_member_tasks(member_id)
+        tasks = self.get_member_tasks(member_name)
         if not tasks:
             return "No tasks assigned currently."
         return "\n".join([
@@ -418,19 +412,18 @@ class AIScrumMaster:
 
 
 
-    def generate_question(self, member_tuple: tuple, step: int) -> str:
+    def generate_question(self, member_name: str, step: int) -> str:
         """
         Generate the next appropriate question for the user, using the full conversation history
         for this user in the current standup, and summaries from previous standups, with explicit
         instructions to avoid repeating topics. Also, reference context from other users who have worked on the same task.
         """
-        member_id, member_display_name = member_tuple
         # Gather all Q&A for this member in the current standup
         member_history = []
         for msg in self.conversation_history:
             # Only include messages relevant to this member in this standup
             # (Assumes user responses are always after an assistant question for that user)
-            if msg.get("member_name") == member_id:
+            if msg.get("member_name") == member_name:
                 member_history.append({"role": msg["role"], "content": msg["content"]})
 
         # Format the Q&A history for the prompt
@@ -439,10 +432,10 @@ class AIScrumMaster:
             if msg["role"] == "assistant":
                 qa_history += f"Assistant asked: {msg['content']}\n"
             elif msg["role"] == "user":
-                qa_history += f"{member_display_name} replied: {msg['content']}\n"
+                qa_history += f"{member_name} replied: {msg['content']}\n"
         # If there is no prior conversation for this user in this standup, make it explicit
         if not qa_history:
-            qa_history = f"No prior conversation history for {member_display_name} in this standup. This is the first question for {member_display_name}."
+            qa_history = f"No prior conversation history for {member_name} in this standup. This is the first question for {member_name}."
 
         # Gather previous standup summaries for this user
         previous_standups = get_previous_standups(self.user_id, limit=3)
@@ -452,8 +445,8 @@ class AIScrumMaster:
         previous_context = "\n".join(f"- {summary}" for summary in previous_summaries) if previous_summaries else "No previous standup summaries available."
 
         # Gather JIRA tasks context for this user in the current sprint
-        tasks_context = self.build_tasks_context(member_id)
-        member_tasks = self.get_member_tasks(member_id)
+        tasks_context = self.build_tasks_context(member_name)
+        member_tasks = self.get_member_tasks(member_name)
 
         # Fetch cross-user context for each task
         cross_user_contexts = []
@@ -485,9 +478,9 @@ class AIScrumMaster:
         ]
 
         prompt = f"""
-    You are an AI Scrum Master conducting a standup with {member_display_name}.
+    You are an AI Scrum Master conducting a standup with {member_name}.
 
-    Here are the tasks assigned to {member_display_name} in the current sprint:
+    Here are the tasks assigned to {member_name} in the current sprint:
     {tasks_context}
 
     {cross_user_context_str}
@@ -495,7 +488,7 @@ class AIScrumMaster:
     Here is the conversation so far in the current standup:
     {qa_history}
 
-    Here are summaries from previous standups for {member_display_name}:
+    Here are summaries from previous standups for {member_name}:
     {previous_context}
 
     Your task:
@@ -503,12 +496,12 @@ class AIScrumMaster:
     - Reference what other team members have said about the same task if available.
     - Do NOT finish the standup until all tasks have been discussed, unless the user explicitly says they have nothing more to add for all tasks.
     - Reference the JIRA tasks above directly in your questions (use their IDs and summaries).
-    - Do NOT ask about topics that {member_display_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+    - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
     - If a topic has been covered, move on to the next relevant Scrum question or task.
     - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
     - The standard Scrum questions are: {', '.join(scrum_questions)}
 
-    Now, generate the next appropriate question for {member_display_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
+    Now, generate the next appropriate question for {member_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
     """
 
         refined_question = model.generate_content(prompt).text.strip()
@@ -516,14 +509,13 @@ class AIScrumMaster:
             return "Thank you, all questions have been answered!"
         return refined_question
 
-    def add_user_response(self, member_tuple: tuple, response: str):
+    def add_user_response(self, member_name: str, response: str):
         """Process and store the user response along with internal analysis and update context immediately."""
-        member_id, member_display_name = member_tuple
         # Add user message to conversation history
         self.conversation_history.append({
             "role": "user",
             "content": response,
-            "member_name": member_id,
+            "member_name": member_name,
             "timestamp": datetime.now(timezone.utc)
         })
 
