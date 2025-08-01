@@ -118,7 +118,13 @@ async def start_session(request: BotRequest):
             session["show_summary"] = False
 
             member_tuple = session["team_members"][0]
-            member_id, member_display_name = member_tuple
+            if isinstance(member_tuple, tuple) and len(member_tuple) == 2:
+                member_id, member_display_name = member_tuple
+            elif isinstance(member_tuple, dict):
+                member_display_name = member_tuple.get('displayName', 'Team Member')
+                member_id = member_tuple.get('accountId', 'unknown')
+            else:
+                member_id = member_display_name = str(member_tuple)
             question = session["scrum_master"].generate_question(
                 member_tuple,
                 session["conversation_step"]
@@ -235,7 +241,13 @@ async def select_board(request: BotRequest):
         session["show_summary"] = False
 
         member_tuple = session["team_members"][0]
-        member_id, member_display_name = member_tuple
+        if isinstance(member_tuple, tuple) and len(member_tuple) == 2:
+            member_id, member_display_name = member_tuple
+        elif isinstance(member_tuple, dict):
+            member_display_name = member_tuple.get('displayName', 'Team Member')
+            member_id = member_tuple.get('accountId', 'unknown')
+        else:
+            member_id = member_display_name = str(member_tuple)
         question = session["scrum_master"].generate_question(
             member_tuple,
             session["conversation_step"]
@@ -349,7 +361,13 @@ async def process_message(request: BotRequest):
 
     # Handle response for the current team member
     member_tuple = team_members[current_index]
-    member_id, member_display_name = member_tuple
+    if isinstance(member_tuple, tuple) and len(member_tuple) == 2:
+        member_id, member_display_name = member_tuple
+    elif isinstance(member_tuple, dict):
+        member_display_name = member_tuple.get('displayName', 'Team Member')
+        member_id = member_tuple.get('accountId', 'unknown')
+    else:
+        member_id = member_display_name = str(member_tuple)
     response = request.text
 
     import re
