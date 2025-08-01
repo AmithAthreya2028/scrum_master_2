@@ -299,10 +299,8 @@ async def process_message(request: BotRequest):
     session_id, session = get_or_create_session(safe_session_id, safe_user_id)
 
     if not session["standup_started"]:
-        # Clean user response of Teams mention markup and bot name
         import re
         clean_response = re.sub(r"<at>.*?</at>", "", request.text).replace("@Agentic Scrum Bot", "").strip()
-        # Check for stop command before standup starts
         if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
             return BotResponse(
                 activity_id=request.activity_id,
@@ -310,9 +308,8 @@ async def process_message(request: BotRequest):
                 session_id=session_id,
                 requires_input=True
             )
-        # Only respond to explicit start commands
         if clean_response.lower() in ["start", "start standup"]:
-            session["selected_board_id"] = None  # Reset board selection for new standup
+            session["selected_board_id"] = None
             boards = get_boards()
             if not boards:
                 return BotResponse(
@@ -331,7 +328,6 @@ async def process_message(request: BotRequest):
                 requires_input=True
             )
         else:
-            # For any other message, do NOT prompt for board selection
             return BotResponse(
                 activity_id=request.activity_id,
                 text="Standup not started. Please type 'start' to begin a new standup session.",
@@ -343,25 +339,19 @@ async def process_message(request: BotRequest):
     current_index = session["current_member_index"]
     show_summary = session.get("show_summary", False)
 
-    # Check if we need to generate a summary
     if show_summary or current_index >= len(team_members):
         summary = session["scrum_master"].generate_summary()
-
-        # Store the conversation in the database
         conversation_doc = {
             "user_id": session["user_id"],
             "messages": session["scrum_master"].conversation_history,
             "summary": summary
         }
         store_conversation(conversation_doc)
-
-        # Reset the session
         session["standup_started"] = False
         session["current_member_index"] = 0
         session["conversation_step"] = 1
         session["messages"] = []
         session["show_summary"] = False
-
         return BotResponse(
             activity_id=request.activity_id,
             text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
@@ -371,7 +361,6 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
 
-    # Handle response for the current team member
     member_tuple = team_members[current_index]
     if isinstance(member_tuple, tuple) and len(member_tuple) == 2:
         member_id, member_display_name = member_tuple
@@ -383,32 +372,25 @@ async def process_message(request: BotRequest):
     response = request.text
 
     import re
-    # Clean user response of Teams mention markup and bot name
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
-    # --- SCRUM MASTER INTERVENTION HANDLING ---
-    # If the sender is the Scrum Master, record intervention and pause bot questions
+    # SCRUM MASTER INTERVENTION HANDLING
     if safe_user_id == SCRUM_MASTER_ID:
-        # Record intervention in session history
         session["messages"].append({
             "role": "scrum_master",
             "content": clean_response,
             "member_name": team_members[current_index] if current_index < len(team_members) else "unknown",
             "timestamp": None
         })
-        # Store in Pinecone for semantic context
         if session.get("scrum_master"):
             session["scrum_master"].store_context_in_pinecone(
                 member_name=team_members[current_index] if current_index < len(team_members) else "unknown",
                 response=clean_response,
                 analysis_result="[Scrum Master Intervention]"
             )
-        # If Scrum Master signals resume, set intervention mode off
         if clean_response.lower() in ["resume standup", "done", "continue"]:
             session["scrum_master_intervention"] = False
-            # Bot resumes normal questioning below
         else:
-            # Set intervention mode on and pause bot questions
             session["scrum_master_intervention"] = True
             return BotResponse(
                 activity_id=request.activity_id,
@@ -416,7 +398,6 @@ async def process_message(request: BotRequest):
                 session_id=session_id,
                 requires_input=True
             )
-    # If intervention mode is on, do not ask bot questions
     if session.get("scrum_master_intervention", False):
         return BotResponse(
             activity_id=request.activity_id,
@@ -425,7 +406,6 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
 
-    # Add 'change board' command to allow user to reset board selection
     if clean_response.lower() in ["change board", "switch board"]:
         session["selected_board_id"] = None
         boards = get_boards()
@@ -439,27 +419,20 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
 
-    # Command to end the standup early
     if clean_response.lower() in ["end standup", "end", "finish"]:
-        # Generate summary directly instead of recursively calling process_message
         if session.get("scrum_master"):
             summary = session["scrum_master"].generate_summary()
-
-            # Store the conversation in the database
             conversation_doc = {
                 "user_id": session["user_id"],
                 "messages": session["scrum_master"].conversation_history,
                 "summary": summary
             }
             store_conversation(conversation_doc)
-
-            # Reset the session
             session["standup_started"] = False
             session["current_member_index"] = 0
             session["conversation_step"] = 1
             session["messages"] = []
             session["show_summary"] = False
-
             return BotResponse(
                 activity_id=request.activity_id,
                 text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
@@ -476,9 +449,7 @@ async def process_message(request: BotRequest):
                 requires_input=True
             )
 
-    # Command to stop the standup and generate summary immediately
     if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
-        # Mark the session as stopped and reset all standup-related state
         session["standup_started"] = False
         session["show_summary"] = False
         session["current_member_index"] = 0
@@ -488,18 +459,13 @@ async def process_message(request: BotRequest):
         session["selected_board_id"] = None
         session["team_members"] = []
         session["scrum_master"] = None
-
-        # Generate a partial summary if scrum_master exists
         partial_summary = session["scrum_master"].generate_summary() if session.get("scrum_master") else "Standup stopped. No summary available."
-
-        # Store the conversation in the database
         conversation_doc = {
             "user_id": session["user_id"],
             "messages": session["scrum_master"].conversation_history if session.get("scrum_master") else [],
             "summary": partial_summary
         }
         store_conversation(conversation_doc)
-
         return BotResponse(
             activity_id=request.activity_id,
             text="Standup has been stopped by request. Here’s a summary of what was discussed so far:\n\n" + partial_summary + "\n\nYou can type 'start' to begin a new standup session.",
@@ -509,7 +475,6 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
 
-    # Skip user functionality
     if clean_response.lower() in ["skip", "skip user", "not available", "on leave", "sick leave"]:
         skipped_member_id, skipped_member_display_name = member_tuple
         session["messages"].append({
@@ -518,13 +483,10 @@ async def process_message(request: BotRequest):
         })
         if session.get("scrum_master"):
             session["scrum_master"].add_assistant_response(f"{skipped_member_display_name} was skipped (not available).", member_tuple)
-        # Move to next team member
         session["current_member_index"] += 1
         session["conversation_step"] = 1
         session["messages"] = []
         session["nothing_count"] = 0
-
-        # Check if we're done with all team members
         if session["current_member_index"] >= len(team_members):
             session["show_summary"] = True
             summary = session["scrum_master"].generate_summary()
@@ -547,8 +509,6 @@ async def process_message(request: BotRequest):
                 summary=summary,
                 requires_input=True
             )
-
-        # Get the next member
         next_member_tuple = team_members[session["current_member_index"]]
         next_member_id, next_member_display_name = next_member_tuple
         next_question = session["scrum_master"].generate_question(
@@ -567,14 +527,12 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
 
-    # Add cleaned user response to messages and scrum master
     session["messages"].append({
         "role": "user",
         "content": clean_response
     })
     session["scrum_master"].add_user_response(member_tuple, clean_response)
 
-    # Check if the response is trivial
     trivial_responses = [
         "nothing", "nothing thank you", "no", "none", "done", "finished", "ok",
         "nope", "no nothing", "nothing to discuss", "no nothing to discuss further"
@@ -582,54 +540,30 @@ async def process_message(request: BotRequest):
     if clean_response.strip().lower() in trivial_responses:
         session["nothing_count"] = session.get("nothing_count", 0) + 1
     else:
-        session["nothing_count"] = 0  # Reset if the response is meaningful
+        session["nothing_count"] = 0
 
-    # Force the bot to ask all standard Scrum questions for each user before moving to the next user
-    num_questions = 4  # Update this if you change the number of standard scrum questions
+    num_questions = 4
 
-    # --- INTEGRATE SCRUM MASTER INTERVENTIONS INTO CONTEXT ---
-    # Build context for next question including interventions
-    def build_context_for_question(member_name):
-        history = [
-            msg for msg in session["messages"]
-            if msg.get("member_name") == member_name and msg["role"] in ["user", "scrum_master"]
-        ]
-        context = "\n".join(
-            f"{msg['role'].capitalize()}: {msg['content']}" for msg in history
-        )
-        return context
-
-    # Check if the user has answered all questions or given too many trivial responses
     if session["conversation_step"] >= num_questions or session["nothing_count"] >= 2:
         final_message = f"Thanks for the update, {member_display_name}."
-
-        # Move to next team member
         session["current_member_index"] += 1
         session["conversation_step"] = 1
-        session["messages"] = []  # Reset messages for the next member
-        session["nothing_count"] = 0  # Reset the counter
-
-        # Check if we're done with all team members
+        session["messages"] = []
+        session["nothing_count"] = 0
         if session["current_member_index"] >= len(team_members):
-            # We're done, get the summary
             session["show_summary"] = True
             summary = session["scrum_master"].generate_summary()
-
-            # Store the conversation in the database
             conversation_doc = {
                 "user_id": session["user_id"],
                 "messages": session["scrum_master"].conversation_history,
                 "summary": summary
             }
             store_conversation(conversation_doc)
-
-            # Reset the session
             session["standup_started"] = False
             session["current_member_index"] = 0
             session["conversation_step"] = 1
             session["messages"] = []
             session["show_summary"] = False
-
             return BotResponse(
                 activity_id=request.activity_id,
                 text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
@@ -638,21 +572,17 @@ async def process_message(request: BotRequest):
                 summary=summary,
                 requires_input=True
             )
-
-        # Get the next member
         next_member_tuple = team_members[session["current_member_index"]]
         next_member_id, next_member_display_name = next_member_tuple
         next_question = session["scrum_master"].generate_question(
             next_member_tuple,
             session["conversation_step"]
         )
-
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
         session["scrum_master"].add_assistant_response(next_question, next_member_tuple)
-
         return BotResponse(
             activity_id=request.activity_id,
             text=f"{final_message} I'll now move on to {next_member_display_name}.\n\n{next_question}",
@@ -660,19 +590,16 @@ async def process_message(request: BotRequest):
             requires_input=True
         )
     else:
-        # Continue with the same member
         session["conversation_step"] += 1
         next_question = session["scrum_master"].generate_question(
             member_tuple,
             session["conversation_step"]
         )
-
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
         session["scrum_master"].add_assistant_response(next_question, member_tuple)
-
         return BotResponse(
             activity_id=request.activity_id,
             text=next_question,
