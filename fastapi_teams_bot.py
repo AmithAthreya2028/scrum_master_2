@@ -135,9 +135,15 @@ async def start_session(request: BotRequest):
             })
             session["scrum_master"].add_assistant_response(question, member_tuple)
 
+            # Extract just the display name if it's still a dictionary
+            if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
+                display_name = member_display_name.get('displayName', 'Team Member')
+            else:
+                display_name = member_display_name
+
             return BotResponse(
                 activity_id=request.activity_id,
-                text=f"Welcome back! Using your last selected board (ID: {last_board_id}).\nStarting standup with {member_display_name}.\n\n{question}",
+                text=f"Welcome back! Using your last selected board (ID: {last_board_id}).\nStarting standup with {display_name}.\n\n{question}",
                 session_id=session_id,
                 requires_input=True
             )
@@ -259,9 +265,15 @@ async def select_board(request: BotRequest):
         })
         session["scrum_master"].add_assistant_response(question, member_tuple)
 
+        # Extract just the display name if it's still a dictionary
+        if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
+            display_name = member_display_name.get('displayName', 'Team Member')
+        else:
+            display_name = member_display_name
+
         return BotResponse(
             activity_id=request.activity_id,
-            text=f"Starting standup with {member_display_name}.\n\n{question}",
+            text=f"Starting standup with {display_name}.\n\n{question}",
             session_id=session_id,
             requires_input=True
         )
@@ -429,8 +441,40 @@ async def process_message(request: BotRequest):
 
     # Command to end the standup early
     if clean_response.lower() in ["end standup", "end", "finish"]:
-        session["show_summary"] = True
-        return await process_message(request)  # Recursively call to generate summary
+        # Generate summary directly instead of recursively calling process_message
+        if session.get("scrum_master"):
+            summary = session["scrum_master"].generate_summary()
+
+            # Store the conversation in the database
+            conversation_doc = {
+                "user_id": session["user_id"],
+                "messages": session["scrum_master"].conversation_history,
+                "summary": summary
+            }
+            store_conversation(conversation_doc)
+
+            # Reset the session
+            session["standup_started"] = False
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["show_summary"] = False
+
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
+                session_id=session_id,
+                is_end=True,
+                summary=summary,
+                requires_input=True
+            )
+        else:
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Cannot generate summary: No active scrum master found.",
+                session_id=session_id,
+                requires_input=True
+            )
 
     # Command to stop the standup and generate summary immediately
     if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
