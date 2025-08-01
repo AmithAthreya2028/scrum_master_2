@@ -572,7 +572,7 @@ async def process_message(request: BotRequest):
         "role": "user",
         "content": clean_response
     })
-    session["scrum_master"].add_user_response(member, clean_response)
+    session["scrum_master"].add_user_response(member_tuple, clean_response)
 
     # Check if the response is trivial
     trivial_responses = [
@@ -601,7 +601,7 @@ async def process_message(request: BotRequest):
 
     # Check if the user has answered all questions or given too many trivial responses
     if session["conversation_step"] >= num_questions or session["nothing_count"] >= 2:
-        final_message = f"Thanks for the update, {member}."
+        final_message = f"Thanks for the update, {member_display_name}."
 
         # Move to next team member
         session["current_member_index"] += 1
