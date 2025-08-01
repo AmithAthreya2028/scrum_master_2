@@ -342,10 +342,16 @@ class AIScrumMaster:
                 self.current_sprint = active_sprints[0]
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
-                    assignee_display_name = issue.get('Reporter') or assignee  # Try to get display name, fallback to ID
-                    if assignee and assignee != "Unassigned":
-                        self.team_members.add((assignee, assignee_display_name))
-                        store_user(assignee, assignee_display_name)
+                    # Ensure assignee is a dict and extract accountId/displayName
+                    if isinstance(assignee, dict):
+                        member_id = assignee.get('accountId')
+                        member_display_name = assignee.get('displayName')
+                    else:
+                        member_id = assignee
+                        member_display_name = assignee
+                    if member_id and member_id != "Unassigned":
+                        self.team_members.add((member_id, member_display_name))
+                        store_user(member_id, member_display_name)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
