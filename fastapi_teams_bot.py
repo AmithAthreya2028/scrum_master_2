@@ -125,6 +125,13 @@ async def start_session(request: BotRequest):
                 member_id = member_tuple.get('accountId', 'unknown')
             else:
                 member_id = member_display_name = str(member_tuple)
+
+            # Ensure display name is extracted correctly
+            if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
+                display_name = member_display_name.get('displayName', 'Team Member')
+            else:
+                display_name = member_display_name
+
             question = session["scrum_master"].generate_question(
                 member_tuple,
                 session["conversation_step"]
@@ -134,12 +141,6 @@ async def start_session(request: BotRequest):
                 "content": question
             })
             session["scrum_master"].add_assistant_response(question, member_tuple)
-
-            # Extract just the display name if it's still a dictionary
-            if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
-                display_name = member_display_name.get('displayName', 'Team Member')
-            else:
-                display_name = member_display_name
 
             return BotResponse(
                 activity_id=request.activity_id,
@@ -254,6 +255,13 @@ async def select_board(request: BotRequest):
             member_id = member_tuple.get('accountId', 'unknown')
         else:
             member_id = member_display_name = str(member_tuple)
+
+        # Ensure display name is extracted correctly
+        if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
+            display_name = member_display_name.get('displayName', 'Team Member')
+        else:
+            display_name = member_display_name
+
         question = session["scrum_master"].generate_question(
             member_tuple,
             session["conversation_step"]
@@ -264,12 +272,6 @@ async def select_board(request: BotRequest):
             "content": question
         })
         session["scrum_master"].add_assistant_response(question, member_tuple)
-
-        # Extract just the display name if it's still a dictionary
-        if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
-            display_name = member_display_name.get('displayName', 'Team Member')
-        else:
-            display_name = member_display_name
 
         return BotResponse(
             activity_id=request.activity_id,
