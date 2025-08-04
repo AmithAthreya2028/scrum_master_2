@@ -127,20 +127,21 @@ async def start_session(request: BotRequest):
                 member_id = member_display_name = str(member_tuple)
 
             # Ensure display name is extracted correctly
-            if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
-                display_name = member_display_name.get('displayName', 'Team Member')
-            else:
-                display_name = member_display_name
+            display_name = (
+                member_display_name.get('displayName', 'Team Member')
+                if isinstance(member_display_name, dict)
+                else member_display_name
+            )
 
             question = session["scrum_master"].generate_question(
-                member_tuple,
+                member_id,  # Pass member_id instead of member_tuple for clarity
                 session["conversation_step"]
             )
             session["messages"].append({
                 "role": "assistant",
                 "content": question
             })
-            session["scrum_master"].add_assistant_response(question, member_tuple)
+            session["scrum_master"].add_assistant_response(question, member_id)
 
             return BotResponse(
                 activity_id=request.activity_id,
@@ -257,13 +258,14 @@ async def select_board(request: BotRequest):
             member_id = member_display_name = str(member_tuple)
 
         # Ensure display name is extracted correctly
-        if isinstance(member_display_name, dict) and 'displayName' in member_display_name:
-            display_name = member_display_name.get('displayName', 'Team Member')
-        else:
-            display_name = member_display_name
+        display_name = (
+            member_display_name.get('displayName', 'Team Member')
+            if isinstance(member_display_name, dict)
+            else member_display_name
+        )
 
         question = session["scrum_master"].generate_question(
-            member_tuple,
+            member_id,  # Pass member_id instead of member_tuple for clarity
             session["conversation_step"]
         )
 
@@ -271,7 +273,7 @@ async def select_board(request: BotRequest):
             "role": "assistant",
             "content": question
         })
-        session["scrum_master"].add_assistant_response(question, member_tuple)
+        session["scrum_master"].add_assistant_response(question, member_id)
 
         return BotResponse(
             activity_id=request.activity_id,

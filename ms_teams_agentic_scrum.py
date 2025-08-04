@@ -1,4 +1,3 @@
-
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -173,11 +172,15 @@ def store_user(user_id: str, display_name: str):
         "created_at": datetime.now(timezone.utc)
     }
     try:
-        users_collection.insert_one(user_doc)
+        users_collection.update_one(
+            {"user_id": user_id},
+            {"$set": user_doc},
+            upsert=True
+        )
     except DuplicateKeyError:
         print(f"User with id {user_id} already exists.")
 
-def get_last_selected_board(user_id: str) -> int | None:
+def get_last_selected_board(user_id: str) -> Optional[int]:
     """Retrieve the last selected board for a user from MongoDB."""
     doc = users_collection.find_one({"user_id": user_id})
     if doc and "last_board_id" in doc:
@@ -344,14 +347,14 @@ class AIScrumMaster:
                     assignee = issue.get('Assignee')
                     if isinstance(assignee, dict):
                         member_id = assignee.get('accountId')
-                        member_display_name = assignee.get('displayName')
+                        member_display_name = assignee.get('displayName', 'Team Member')
                         if member_id:
-                            self.team_members.add(member_id)
+                            self.team_members.add((member_id, member_display_name))
                             store_user(member_id, member_display_name)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
-                    self.team_members.add(self.user_id)
+                    self.team_members.add((self.user_id, "Current User"))
                 return True
         if not self.team_members:
             print("Warning: No team members found in the active sprint. Standup will skip to summary.")

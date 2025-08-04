@@ -2,7 +2,7 @@
 
 This application provides a FastAPI interface for the AI Scrum Master Bot, designed to integrate with Microsoft Teams. The bot automates daily standups by facilitating conversations with team members about their progress, blockers, and plans.
 
-## Architecture:
+## Architecture:  
 
 This solution consists of:
 

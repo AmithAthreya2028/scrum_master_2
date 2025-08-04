@@ -86,6 +86,31 @@ def check_ms_teams_app():
     # Cannot fully check validity without making a real OAuth request, but can check presence
     print("Microsoft Teams App ID and Password are present.")
 
+def check_mongo_user_storage():
+    mongo_uri = os.getenv("MONGO_URI")
+    if not mongo_uri:
+        print("MONGO_URI not found in environment variables.")
+        return
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        db = client["jira_db"]
+        users_collection = db["users"]
+        test_user_id = "test_user_id"
+        test_display_name = "Test User"
+        users_collection.update_one(
+            {"user_id": test_user_id},
+            {"$set": {"display_name": test_display_name}},
+            upsert=True
+        )
+        user_doc = users_collection.find_one({"user_id": test_user_id})
+        if user_doc and user_doc.get("display_name") == test_display_name:
+            print("MongoDB user storage test passed.")
+        else:
+            print("MongoDB user storage test failed.")
+    except Exception as e:
+        print("MongoDB user storage check failed. Error:", str(e))
+
 def check_all_apis():
     print("Checking Gemini API Key...")
     check_gemini_api_key()
@@ -97,6 +122,8 @@ def check_all_apis():
     check_mongo_uri()
     print("\nChecking Microsoft Teams App credentials...")
     check_ms_teams_app()
+    print("\nChecking MongoDB user storage...")
+    check_mongo_user_storage()
 
 if __name__ == "__main__":
     load_dotenv()
