@@ -242,7 +242,7 @@ def get_issue_details(issue: Dict) -> Dict:
         'Key': issue.get('key'),
         'Summary': get_field_value(issue, 'summary'),
         'Status': get_field_value(issue, 'status'),
-        'Assignee': get_field_value(issue, 'assignee'),
+        'Assignee': fields.get('assignee'),  # <-- preserve full object
         'Reporter': get_field_value(issue, 'reporter'),
         'Priority': fields.get('priority', {}).get('name', 'Not set'),
         'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown'),
@@ -345,9 +345,9 @@ class AIScrumMaster:
                 self.current_sprint = active_sprints[0]
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
-                    if isinstance(assignee, dict):
+                    if isinstance(assignee, dict) and 'accountId' in assignee:
                         member_id = assignee.get('accountId')
-                        member_display_name = assignee.get('displayName', 'Team Member')
+                        member_display_name = assignee.get('displayName', member_id)
                         if member_id:
                             self.team_members.add((member_id, member_display_name))
                             store_user(member_id, member_display_name)
@@ -418,7 +418,8 @@ class AIScrumMaster:
 
 
 
-    def generate_question(self, member_name: str, step: int) -> str:
+    def generate_question(self, member_tuple, step: int) -> str:
+        member_id, member_display_name = member_tuple if isinstance(member_tuple, tuple) else (member_tuple, str(member_tuple))
         """
         Generate the next appropriate question for the user, using the full conversation history
         for this user in the current standup, and summaries from previous standups, with explicit
@@ -429,7 +430,7 @@ class AIScrumMaster:
         for msg in self.conversation_history:
             # Only include messages relevant to this member in this standup
             # (Assumes user responses are always after an assistant question for that user)
-            if msg.get("member_name") == member_name:
+            if msg.get("member_name") == member_display_name:
                 member_history.append({"role": msg["role"], "content": msg["content"]})
 
         # Format the Q&A history for the prompt
@@ -438,10 +439,10 @@ class AIScrumMaster:
             if msg["role"] == "assistant":
                 qa_history += f"Assistant asked: {msg['content']}\n"
             elif msg["role"] == "user":
-                qa_history += f"{member_name} replied: {msg['content']}\n"
+                qa_history += f"{member_display_name} replied: {msg['content']}\n"
         # If there is no prior conversation for this user in this standup, make it explicit
         if not qa_history:
-            qa_history = f"No prior conversation history for {member_name} in this standup. This is the first question for {member_name}."
+            qa_history = f"No prior conversation history for {member_display_name} in this standup. This is the first question for {member_display_name}."
 
         # Gather previous standup summaries for this user
         previous_standups = get_previous_standups(self.user_id, limit=3)
@@ -451,7 +452,7 @@ class AIScrumMaster:
         previous_context = "\n".join(f"- {summary}" for summary in previous_summaries) if previous_summaries else "No previous standup summaries available."
 
         # Gather JIRA tasks context for this user in the current sprint
-        tasks_context = self.build_tasks_context(member_name)
+        tasks_context = self.build_tasks_context(member_id)
         member_tasks = self.get_member_tasks(member_name)
 
         # Fetch cross-user context for each task
@@ -484,9 +485,9 @@ class AIScrumMaster:
         ]
 
         prompt = f"""
-    You are an AI Scrum Master conducting a standup with {member_name}.
+    You are an AI Scrum Master conducting a standup with {member_display_name}.
 
-    Here are the tasks assigned to {member_name} in the current sprint:
+    Here are the tasks assigned to {member_display_name} in the current sprint:
     {tasks_context}
 
     {cross_user_context_str}
@@ -494,7 +495,7 @@ class AIScrumMaster:
     Here is the conversation so far in the current standup:
     {qa_history}
 
-    Here are summaries from previous standups for {member_name}:
+    Here are summaries from previous standups for {member_display_name}:
     {previous_context}
 
     Your task:
@@ -502,12 +503,12 @@ class AIScrumMaster:
     - Reference what other team members have said about the same task if available.
     - Do NOT finish the standup until all tasks have been discussed, unless the user explicitly says they have nothing more to add for all tasks.
     - Reference the JIRA tasks above directly in your questions (use their IDs and summaries).
-    - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
+    - Do NOT ask about topics that {member_display_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
     - If a topic has been covered, move on to the next relevant Scrum question or task.
     - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
     - The standard Scrum questions are: {', '.join(scrum_questions)}
 
-    Now, generate the next appropriate question for {member_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
+    Now, generate the next appropriate question for {member_display_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
     """
 
         refined_question = model.generate_content(prompt).text.strip()
@@ -515,19 +516,17 @@ class AIScrumMaster:
             return "Thank you, all questions have been answered!"
         return refined_question
 
-    def add_user_response(self, member_name: str, response: str):
-        """Process and store the user response along with internal analysis and update context immediately."""
-        # Add user message to conversation history
+    def add_user_response(self, member_tuple, response: str):
+        member_id, member_display_name = member_tuple if isinstance(member_tuple, tuple) else (member_tuple, str(member_tuple))
         self.conversation_history.append({
             "role": "user",
             "content": response,
-            "member_name": member_name,
+            "member_name": member_display_name,
             "timestamp": datetime.now(timezone.utc)
         })
-
         # Create an analysis prompt for the response
         analysis_prompt = f"""
-Analyze this response from {member_name}:
+Analyze this response from {member_display_name}:
 ---
 {response}
 ---
@@ -560,12 +559,12 @@ Please format your answer as a bullet list, and include the JSON object at the e
         # Streamlit session state removed; this method should not be used in backend-only context
         raise NotImplementedError("generate_ai_response is not supported in backend-only mode.")
 
-    def add_assistant_response(self, response: str, member_name: str):
-        """Store the assistant's response in conversation history."""
+    def add_assistant_response(self, response: str, member_tuple):
+        member_id, member_display_name = member_tuple if isinstance(member_tuple, tuple) else (member_tuple, str(member_tuple))
         self.conversation_history.append({
             "role": "assistant",
             "content": response,
-            "member_name": member_name,
+            "member_name": member_display_name,
             "timestamp": datetime.now(timezone.utc)
         })
 
@@ -724,4 +723,5 @@ Format the summary in markdown.
             ]
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
+            return []
             return []
