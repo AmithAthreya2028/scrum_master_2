@@ -791,18 +791,20 @@ Format the summary in markdown.
         from_obj = payload.get("from", {})
         return from_obj.get("id")
 
-    def process_user_reply(self, payload: dict, member_name: str, response: str):
+    def process_user_reply(self, payload: dict, member_data: tuple, response: str):
         """
         Extract user ID from payload, cross-check with user dict, and process or ignore the answer.
         If user ID is valid, process the answer and move to next question.
         If not, ignore the message.
         """
         sender_id = self.extract_user_id_from_payload(payload)
-        if not sender_id or not self.validate_sender(sender_id, member_name[1]): # member_name is now a tuple (name, id)
-            print(f"Ignoring message from sender ID: {sender_id}. Expected message from {member_name[0]} (ID: {member_name[1]}).")
+        member_name, member_id = member_data
+
+        if not sender_id or not self.validate_sender(sender_id, member_id):
+            print(f"Ignoring message from sender ID: {sender_id}. Expected message from {member_name} (ID: {member_id}).")
             return False  # Message ignored
 
         # Process the answer
-        self.add_user_response(member_name[0], response) # Pass only the name
-        print(f"Processed answer from user {sender_id} for member {member_name[0]}")
+        self.add_user_response(member_name, response)
+        print(f"Processed answer from user {sender_id} for member {member_name}")
         return True  # Message processed

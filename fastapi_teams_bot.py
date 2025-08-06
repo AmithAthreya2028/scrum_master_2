@@ -70,8 +70,8 @@ def get_display_name(member_data):
     if isinstance(member_data, str):
         return member_data
     elif isinstance(member_data, tuple) and len(member_data) >= 2:
-        # Handle tuple format (id, display_name)
-        return member_data[1] if isinstance(member_data[1], str) else "Team Member"
+        # Handle tuple format (name, id)
+        return member_data[0] if isinstance(member_data[0], str) else "Team Member"
     elif isinstance(member_data, dict):
         # Handle dictionary format
         return member_data.get('displayName', member_data.get('name', 'Team Member'))
@@ -366,7 +366,7 @@ async def process_message(request: BotRequest):
     if request.raw_payload and session.get("scrum_master"):
         is_processed = session["scrum_master"].process_user_reply(
             payload=request.raw_payload,
-            member_name=member_display_name,
+            member_data=member_data,  # Pass the whole tuple (name, id)
             response=clean_response
         )
         if not is_processed:
