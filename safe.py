@@ -532,8 +532,14 @@ class AIScrumMaster:
         # Check if the sender is a known user
         if sender_id not in self.user_data:
             return False
-        # Check if the sender's name matches the expected member's name
-        return self.user_data[sender_id] == expected_member_name
+        # Normalize both names for a case-insensitive and whitespace-insensitive comparison
+        known_name = self.user_data[sender_id].strip().lower()
+        expected_name = expected_member_name.strip().lower()
+        
+        # Debug print to see what is being compared
+        print(f"Validating sender: Known='{known_name}', Expected='{expected_name}'")
+
+        return known_name == expected_name
 
     def add_user_response(self, member_name: str, response: str):
         """Add user response to conversation history and run analysis."""
