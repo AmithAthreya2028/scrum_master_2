@@ -302,11 +302,25 @@ def fetch_sprint_details(board_id: int, include_closed: bool = False) -> List[Di
 # --------------------------------------------------------------------------------
 
 # Global user ID dictionary
+# Maps MS Teams ID to a dictionary containing their canonical name and JIRA display name.
+# This is the single source of truth for mapping users across platforms.
 USER_ID_DICT = {
-    "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA": "Amith Athreya",
-    "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA": "Rahul Ashok",
-    "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ": "Sachin kangralkar",
-    "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q":"Beeram Yuvaraj Reddy",
+    "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA": {
+        "canonical_name": "Amith Athreya",
+        "jira_name": "Amith Athreya H"
+    },
+    "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA": {
+        "canonical_name": "Rahul Ashok",
+        "jira_name": "Rahul Ashok"
+    },
+    "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ": {
+        "canonical_name": "Sachin Kangralkar",
+        "jira_name": "sachin.kangralkar"
+    },
+    "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q": {
+        "canonical_name": "BeeramYuvaraj.Reddy",
+        "jira_name": "Beeram Yuvaraj Reddy"
+    },
     # Add more user IDs and usernames as needed
 }
 
@@ -315,9 +329,19 @@ class AIScrumMaster:
         self.user_id = user_id
         self.ms_teams_user_id = ms_teams_user_id or user_id
         self.user_data = USER_ID_DICT  # Use the global dictionary
+
+        # Create a reverse map from normalized JIRA name to the user's Teams ID and canonical name
+        self.jira_name_to_user_map = {
+            details["jira_name"].strip().lower(): {
+                "teams_id": uid,
+                "canonical_name": details["canonical_name"]
+            }
+            for uid, details in self.user_data.items()
+        }
+
         self.conversation_history = []
         self.current_sprint = None
-        self.team_members = set()  # Now just a set of display names
+        self.team_members = set()  # Now stores tuples of (canonical_name, teams_id)
         self.blockers = []
         self.action_items = []
         self.context_cache = {}  # For caching contextual history
@@ -351,7 +375,7 @@ class AIScrumMaster:
                 })
 
     def initialize_sprint_data(self, board_id: int):
-        """Initialize sprint data from JIRA."""
+        """Initialize sprint data from JIRA and map users to their Teams IDs."""
         sprints = fetch_sprint_details(board_id, include_closed=False)
         if sprints:
             active_sprints = [s for s in sprints if s['state'] == 'active']
@@ -360,13 +384,28 @@ class AIScrumMaster:
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
                     if isinstance(assignee, dict):
-                        member_display_name = assignee.get('displayName', 'Team Member')
-                        self.team_members.add(member_display_name)
-                        store_user(member_display_name, member_display_name)
+                        jira_display_name = assignee.get('displayName', 'Team Member')
+                        normalized_jira_name = jira_display_name.strip().lower()
+                        
+                        # Find the user details from the normalized JIRA name
+                        user_details = self.jira_name_to_user_map.get(normalized_jira_name)
+
+                        if user_details:
+                            canonical_name = user_details["canonical_name"]
+                            teams_id = user_details["teams_id"]
+                            self.team_members.add((canonical_name, teams_id))
+                            store_user(canonical_name, canonical_name, ms_teams_id=teams_id)
+                        else:
+                            print(f"Warning: Could not find a mapping for JIRA user '{jira_display_name}'. They will not be included in the standup.")
+
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
-                    self.team_members.add("Current User")
+                    # Add the person who started the standup
+                    starter_details = self.user_data.get(self.ms_teams_user_id)
+                    if starter_details:
+                        starter_name = starter_details.get("canonical_name", "Current User")
+                        self.team_members.add((starter_name, self.ms_teams_user_id))
                 return True
         if not self.team_members:
             print("Warning: No team members found in the active sprint. Standup will skip to summary.")
@@ -527,19 +566,11 @@ class AIScrumMaster:
             return "Thank you, all questions have been answered!"
         return refined_question
 
-    def validate_sender(self, sender_id: str, expected_member_name: str) -> bool:
-        """Validate the MS Teams user ID of the sender against the expected team member."""
-        # Check if the sender is a known user
-        if sender_id not in self.user_data:
-            return False
-        # Normalize both names for a case-insensitive and whitespace-insensitive comparison
-        known_name = self.user_data[sender_id].strip().lower()
-        expected_name = expected_member_name.strip().lower()
-        
+    def validate_sender(self, sender_id: str, expected_member_id: str) -> bool:
+        """Validate the MS Teams user ID of the sender against the expected team member's ID."""
         # Debug print to see what is being compared
-        print(f"Validating sender: Known='{known_name}', Expected='{expected_name}'")
-
-        return known_name == expected_name
+        print(f"Validating sender: Actual ID='{sender_id}', Expected ID='{expected_member_id}'")
+        return sender_id == expected_member_id
 
     def add_user_response(self, member_name: str, response: str):
         """Add user response to conversation history and run analysis."""
@@ -767,11 +798,11 @@ Format the summary in markdown.
         If not, ignore the message.
         """
         sender_id = self.extract_user_id_from_payload(payload)
-        if not sender_id or not self.validate_sender(sender_id, member_name):
-            print(f"Ignoring message from sender ID: {sender_id}. Expected message from {member_name}.")
+        if not sender_id or not self.validate_sender(sender_id, member_name[1]): # member_name is now a tuple (name, id)
+            print(f"Ignoring message from sender ID: {sender_id}. Expected message from {member_name[0]} (ID: {member_name[1]}).")
             return False  # Message ignored
 
         # Process the answer
-        self.add_user_response(member_name, response)
-        print(f"Processed answer from user {sender_id} for member {member_name}")
+        self.add_user_response(member_name[0], response) # Pass only the name
+        print(f"Processed answer from user {sender_id} for member {member_name[0]}")
         return True  # Message processed
