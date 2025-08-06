@@ -138,14 +138,14 @@ async def start_session(request: BotRequest):
             member_display_name = get_display_name(member_data)
             
             question = session["scrum_master"].generate_question(
-                member_data,
+                member_display_name, # Pass only the name string
                 session["conversation_step"]
             )
             session["messages"].append({
                 "role": "assistant",
                 "content": question
             })
-            session["scrum_master"].add_assistant_response(question, member_data)
+            session["scrum_master"].add_assistant_response(question, member_display_name) # Pass only the name string
             return BotResponse(
                 activity_id=request.activity_id,
                 text=f"Welcome back! Using your last selected board (ID: {last_board_id}).\nStarting standup with {member_display_name}.\n\n{question}",
@@ -257,14 +257,14 @@ async def select_board(request: BotRequest):
         member_display_name = get_display_name(member_data)
         
         question = session["scrum_master"].generate_question(
-            member_data,
+            member_display_name, # Pass only the name string
             session["conversation_step"]
         )
         session["messages"].append({
             "role": "assistant",
             "content": question
         })
-        session["scrum_master"].add_assistant_response(question, member_data)
+        session["scrum_master"].add_assistant_response(question, member_display_name) # Pass only the name string
         return BotResponse(
             activity_id=request.activity_id,
             text=f"Starting standup with {member_display_name}.\n\n{question}",
@@ -384,7 +384,7 @@ async def process_message(request: BotRequest):
             "content": clean_response
         })
         if session.get("scrum_master"):
-            session["scrum_master"].add_user_response(member_data, clean_response)
+            session["scrum_master"].add_user_response(member_display_name, clean_response) # Pass only the name string
 
 
     # SCRUM MASTER INTERVENTION HANDLING
@@ -496,7 +496,7 @@ async def process_message(request: BotRequest):
             "content": f"{skipped_member_display_name} was skipped (not available)."
         })
         if session.get("scrum_master"):
-            session["scrum_master"].add_assistant_response(f"{skipped_member_display_name} was skipped (not available).", member_data)
+            session["scrum_master"].add_assistant_response(f"{skipped_member_display_name} was skipped (not available).", skipped_member_display_name) # Pass only the name string
         session["current_member_index"] += 1
         session["conversation_step"] = 1
         session["messages"] = []
@@ -526,14 +526,14 @@ async def process_message(request: BotRequest):
         next_member_data = team_members[session["current_member_index"]]
         next_member_display_name = get_display_name(next_member_data)
         next_question = session["scrum_master"].generate_question(
-            next_member_data,
+            next_member_display_name, # Pass only the name string
             session["conversation_step"]
         )
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question, next_member_data)
+        session["scrum_master"].add_assistant_response(next_question, next_member_display_name) # Pass only the name string
         return BotResponse(
             activity_id=request.activity_id,
             text=f"{skipped_member_display_name} was skipped. Moving on to {next_member_display_name}.\n\n{next_question}",
@@ -545,7 +545,7 @@ async def process_message(request: BotRequest):
         "role": "user",
         "content": clean_response
     })
-    session["scrum_master"].add_user_response(member_data, clean_response)
+    session["scrum_master"].add_user_response(member_display_name, clean_response)
 
     trivial_responses = [
         "nothing", "nothing thank you", "no", "none", "done", "finished", "ok",
@@ -589,14 +589,14 @@ async def process_message(request: BotRequest):
         next_member_data = team_members[session["current_member_index"]]
         next_member_display_name = get_display_name(next_member_data)
         next_question = session["scrum_master"].generate_question(
-            next_member_data,
+            next_member_display_name, # Pass only the name string
             session["conversation_step"]
         )
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question, next_member_data)
+        session["scrum_master"].add_assistant_response(next_question, next_member_display_name) # Pass only the name string
         return BotResponse(
             activity_id=request.activity_id,
             text=f"{final_message} I'll now move on to {next_member_display_name}.\n\n{next_question}",
@@ -606,14 +606,14 @@ async def process_message(request: BotRequest):
     else:
         session["conversation_step"] += 1
         next_question = session["scrum_master"].generate_question(
-            member_data,
+            member_display_name, # Pass only the name string
             session["conversation_step"]
         )
         session["messages"].append({
             "role": "assistant",
             "content": next_question
         })
-        session["scrum_master"].add_assistant_response(next_question, member_data)
+        session["scrum_master"].add_assistant_response(next_question, member_display_name) # Pass only the name string
         return BotResponse(
             activity_id=request.activity_id,
             text=next_question,
