@@ -34,7 +34,6 @@ class BotRequest(BaseModel):
     user_id: str
     conversation_id: str
     session_id: Optional[str] = None
-    raw_payload: Optional[dict] = None
 
 class BotResponse(BaseModel):
     activity_id: str
@@ -362,31 +361,6 @@ async def process_message(request: BotRequest):
     import re
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
-    # Use process_user_reply to validate sender and process message
-    if request.raw_payload and session.get("scrum_master"):
-        is_processed = session["scrum_master"].process_user_reply(
-            payload=request.raw_payload,
-            member_name=member_display_name,
-            response=clean_response
-        )
-        if not is_processed:
-            # The message was from an unexpected user.
-            return BotResponse(
-                activity_id=request.activity_id,
-                text=f"Thanks for your input. I am currently waiting for a response from {member_display_name}.",
-                session_id=session_id,
-                requires_input=True
-            )
-    else:
-        # Fallback for when raw_payload is not available or scrum_master is not initialized
-        session["messages"].append({
-            "role": "user",
-            "content": clean_response
-        })
-        if session.get("scrum_master"):
-            session["scrum_master"].add_user_response(member_data, clean_response)
-
-
     # SCRUM MASTER INTERVENTION HANDLING
     if safe_user_id == SCRUM_MASTER_ID:
         current_member_display_name = get_display_name(team_members[current_index]) if current_index < len(team_members) else "unknown"
@@ -712,8 +686,7 @@ async def teams_webhook(request: Request):
                     text=text,
                     user_id=user_id,
                     conversation_id=conversation_id,
-                    session_id=session_id,
-                    raw_payload=data
+                    session_id=session_id
                 )
 
                 # Determine the action based on session state

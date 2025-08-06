@@ -164,13 +164,15 @@ def store_issue(issue: Dict, board_id: int, sprint_id: int):
     except DuplicateKeyError:
         print(f"Issue with id {issue.get('Key')} already exists.")
 
-def store_user(user_id: str, display_name: str):
-    """Store a user document into MongoDB."""
+def store_user(user_id: str, display_name: str, ms_teams_id: str = None):
+    """Store a user document into MongoDB, including MS Teams user ID."""
     user_doc = {
         "user_id": user_id,
         "display_name": display_name,
         "created_at": datetime.now(timezone.utc)
     }
+    if ms_teams_id:
+        user_doc["ms_teams_id"] = ms_teams_id
     try:
         users_collection.update_one(
             {"user_id": user_id},
@@ -301,9 +303,10 @@ def fetch_sprint_details(board_id: int, include_closed: bool = False) -> List[Di
 
 # Global user ID dictionary
 USER_ID_DICT = {
-    "user_id_1": "username_1",
-    "user_id_2": "username_2",
-    "user_id_3": "username_3",
+    "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA": "Amith Athreya H",
+    "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA": "Rahul Ashok",
+    "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ": "sachin.kangralkar",
+    "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q":"BeeramYuvaraj.Reddy",
     # Add more user IDs and usernames as needed
 }
 
@@ -524,16 +527,16 @@ class AIScrumMaster:
             return "Thank you, all questions have been answered!"
         return refined_question
 
-    def validate_sender(self, sender_id: str) -> bool:
-        """Validate the MS Teams user ID of the sender."""
-        return sender_id in self.user_data
+    def validate_sender(self, sender_id: str, expected_member_name: str) -> bool:
+        """Validate the MS Teams user ID of the sender against the expected team member."""
+        # Check if the sender is a known user
+        if sender_id not in self.user_data:
+            return False
+        # Check if the sender's name matches the expected member's name
+        return self.user_data[sender_id] == expected_member_name
 
-    def add_user_response(self, member_name: str, response: str, sender_id: str):
-        """Add user response only if the sender ID matches the stored MS Teams user ID."""
-        if not self.validate_sender(sender_id):
-            print(f"Ignoring message from sender ID: {sender_id} (does not match stored ID)")
-            return
-
+    def add_user_response(self, member_name: str, response: str):
+        """Add user response to conversation history and run analysis."""
         self.conversation_history.append({
             "role": "user",
             "content": response,
@@ -743,3 +746,26 @@ Format the summary in markdown.
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
             return []
+    def extract_user_id_from_payload(self, payload: dict) -> Optional[str]:
+        """
+        Extract MS Teams user ID from the incoming reply payload.
+        Assumes payload contains a 'from' field with 'id'.
+        """
+        from_obj = payload.get("from", {})
+        return from_obj.get("id")
+
+    def process_user_reply(self, payload: dict, member_name: str, response: str):
+        """
+        Extract user ID from payload, cross-check with user dict, and process or ignore the answer.
+        If user ID is valid, process the answer and move to next question.
+        If not, ignore the message.
+        """
+        sender_id = self.extract_user_id_from_payload(payload)
+        if not sender_id or not self.validate_sender(sender_id, member_name):
+            print(f"Ignoring message from sender ID: {sender_id}. Expected message from {member_name}.")
+            return False  # Message ignored
+
+        # Process the answer
+        self.add_user_response(member_name, response)
+        print(f"Processed answer from user {sender_id} for member {member_name}")
+        return True  # Message processed
