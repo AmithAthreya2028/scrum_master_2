@@ -115,7 +115,7 @@ async def start_session(request: BotRequest):
     if last_board_id:
         session["selected_board_id"] = last_board_id
         # Initialize scrum master and start standup as if board was just selected
-        session["scrum_master"] = AIScrumMaster(safe_user_id)
+        session["scrum_master"] = AIScrumMaster(user_id=safe_user_id, ms_teams_user_id=safe_user_id)
         if session["scrum_master"].initialize_sprint_data(last_board_id):
             # Store team members with proper display names
             session["team_members"] = list(session["scrum_master"].team_members)
@@ -231,7 +231,7 @@ async def select_board(request: BotRequest):
     set_last_selected_board(safe_user_id, board_id)
 
     # Initialize scrum master and get team members
-    session["scrum_master"] = AIScrumMaster(safe_user_id)
+    session["scrum_master"] = AIScrumMaster(user_id=safe_user_id, ms_teams_user_id=safe_user_id)
     if session["scrum_master"].initialize_sprint_data(board_id):
         # Store team members with proper handling for display names
         session["team_members"] = list(session["scrum_master"].team_members)
