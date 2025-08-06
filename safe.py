@@ -789,7 +789,10 @@ Format the summary in markdown.
         Assumes payload contains a 'from' field with 'id'.
         """
         from_obj = payload.get("from", {})
-        return from_obj.get("id")
+        user_id = from_obj.get("id")
+        print(f"DEBUG: Extracted user_id from payload: '{user_id}'")
+        print(f"DEBUG: Full 'from' object: {from_obj}")
+        return user_id
 
     def process_user_reply(self, payload: dict, member_data: tuple, response: str):
         """
@@ -798,13 +801,31 @@ Format the summary in markdown.
         If not, ignore the message.
         """
         sender_id = self.extract_user_id_from_payload(payload)
-        member_name, member_id = member_data
+        print(f"DEBUG: Member data received: {member_data}")
+        
+        try:
+            member_name, member_id = member_data
+            print(f"DEBUG: Unpacked member_name: '{member_name}', member_id: '{member_id}'")
+        except (ValueError, TypeError) as e:
+            print(f"ERROR: Failed to unpack member_data: {e}")
+            print(f"ERROR: Type of member_data: {type(member_data)}")
+            # Fallback in case the data format is unexpected
+            if isinstance(member_data, str):
+                member_name = member_data
+                member_id = None
+            else:
+                member_name = str(member_data)
+                member_id = None
 
-        if not sender_id or not self.validate_sender(sender_id, member_id):
-            print(f"Ignoring message from sender ID: {sender_id}. Expected message from {member_name} (ID: {member_id}).")
+        # Compare as strings to handle different types gracefully
+        validation_result = self.validate_sender(str(sender_id), str(member_id))
+        print(f"DEBUG: Validation result: {validation_result}")
+
+        if not sender_id or not validation_result:
+            print(f"WARN: Ignoring message from sender ID: '{sender_id}'. Expected from '{member_name}' (ID: '{member_id}').")
             return False  # Message ignored
 
         # Process the answer
         self.add_user_response(member_name, response)
-        print(f"Processed answer from user {sender_id} for member {member_name}")
+        print(f"INFO: Successfully processed answer from user '{sender_id}' for member '{member_name}'")
         return True  # Message processed

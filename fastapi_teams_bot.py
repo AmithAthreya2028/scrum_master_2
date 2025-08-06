@@ -362,6 +362,12 @@ async def process_message(request: BotRequest):
     import re
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
+    # Debug the current member data
+    print(f"DEBUG: Current member_data: {member_data}")
+    print(f"DEBUG: Type of member_data: {type(member_data)}")
+    print(f"DEBUG: Display name: {member_display_name}")
+    print(f"DEBUG: Raw payload available: {request.raw_payload is not None}")
+
     # Use process_user_reply to validate sender and process message
     if request.raw_payload and session.get("scrum_master"):
         is_processed = session["scrum_master"].process_user_reply(
@@ -369,6 +375,7 @@ async def process_message(request: BotRequest):
             member_data=member_data,  # Pass the whole tuple (name, id)
             response=clean_response
         )
+        print(f"DEBUG: Message processed: {is_processed}")
         if not is_processed:
             # The message was from an unexpected user.
             return BotResponse(
