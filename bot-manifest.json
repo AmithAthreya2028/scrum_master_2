@@ -1,0 +1,78 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.13/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.13",
+  "version": "1.0.0",
+  "id": "6da062e9-f86d-4904-98ac-912655d5dcf9",
+  "packageName": "ai.scrum.master",
+  "developer": {
+    "name": "AI Scrum Master",
+    "websiteUrl": "https://6a96a73b9fdb.ngrok-free.app",
+    "privacyUrl": "https://6a96a73b9fdb.ngrok-free.app/privacy",
+    "termsOfUseUrl": "https://6a96a73b9fdb.ngrok-free.app/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "AI Scrum Master",
+    "full": "AI Scrum Master for Teams"
+  },
+  "description": {
+    "short": "AI-powered Scrum Master assistant for daily standups",
+    "full": "Automates daily standups by facilitating conversations with team members about their progress, blockers, and plans. Connects with JIRA to provide context-aware assistance."
+  },
+  "accentColor": "#FFFFFF",
+  "bots": [
+    {
+      "botId": "6da062e9-f86d-4904-98ac-912655d5dcf9",
+      "scopes": [
+        "personal",
+        "team",
+        "groupchat"
+      ],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": [
+            "personal",
+            "team",
+            "groupchat"
+          ],
+          "commands": [
+            {
+              "title": "start",
+              "description": "Start a new standup"
+            },
+            {
+              "title": "help",
+              "description": "Get help with bot commands"
+            },
+            {
+              "title": "end",
+              "description": "End the current standup and generate summary"
+            },
+            {
+              "title": "skip",
+              "description": "Skip the current team member"
+            }
+          ]
+        }
+      ],
+      "supportsFiles": false
+    }
+  ],
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "6a96a73b9fdb.ngrok-free.app",
+    "token.botframework.com"
+  ],
+  "webApplicationInfo": {
+    "id": "6da062e9-f86d-4904-98ac-912655d5dcf9",
+    "resource": "https://6a96a73b9fdb.ngrok-free.app"
+  }
+}

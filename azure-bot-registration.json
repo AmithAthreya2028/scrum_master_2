@@ -1,0 +1,30 @@
+{
+  "name": "ai-scrum-master",
+  "description": "AI-powered Scrum Master assistant for daily standups",
+  "iconUrl": "https://raw.githubusercontent.com/your-repo/ai-scrum-master/main/assets/bot-icon.png",
+  "msaAppId": "6da062e9-f86d-4904-98ac-912655d5dcf9",
+  "endpoint": "https://6a96a73b9fdb.ngrok-free.app/webhook",
+  "developerAppInsightsKey": null,
+  "luisAppIds": [],
+  "schemaTransformationVersion": "1.3",
+  "isCrossTenant": false,
+  "isMultiTenant": true,
+  "botChannelRegistrations": [
+    {
+      "resourceGroupName": "ai-scrum-master-resources",
+      "botName": "ai-scrum-master",
+      "botLocation": "global",
+      "msaAppId": "6da062e9-f86d-4904-98ac-912655d5dcf9",
+      "msaAppPassword": "your-app-password",
+      "sku": "F0",
+      "endpoint": "https://6a96a73b9fdb.ngrok-free.app/webhook",
+      "channels": [
+        {
+          "name": "MsTeamsChannel",
+          "key": null,
+          "value": null
+        }
+      ]
+    }
+  ]
+}
