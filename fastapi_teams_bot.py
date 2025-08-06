@@ -9,7 +9,7 @@ import uuid
 import requests
 
 # Import core functionality from the original file
-from ms_teams_agentic_scrum import (
+from safe import (
     AIScrumMaster,
     get_boards,
     store_conversation

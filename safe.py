@@ -1,4 +1,3 @@
-
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -173,11 +172,15 @@ def store_user(user_id: str, display_name: str):
         "created_at": datetime.now(timezone.utc)
     }
     try:
-        users_collection.insert_one(user_doc)
+        users_collection.update_one(
+            {"user_id": user_id},
+            {"$set": user_doc},
+            upsert=True
+        )
     except DuplicateKeyError:
         print(f"User with id {user_id} already exists.")
 
-def get_last_selected_board(user_id: str) -> int | None:
+def get_last_selected_board(user_id: str) -> Optional[int]:
     """Retrieve the last selected board for a user from MongoDB."""
     doc = users_collection.find_one({"user_id": user_id})
     if doc and "last_board_id" in doc:
@@ -239,7 +242,7 @@ def get_issue_details(issue: Dict) -> Dict:
         'Key': issue.get('key'),
         'Summary': get_field_value(issue, 'summary'),
         'Status': get_field_value(issue, 'status'),
-        'Assignee': get_field_value(issue, 'assignee'),
+        'Assignee': fields.get('assignee'),  # <-- preserve full object
         'Reporter': get_field_value(issue, 'reporter'),
         'Priority': fields.get('priority', {}).get('name', 'Not set'),
         'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown'),
@@ -295,12 +298,23 @@ def fetch_sprint_details(board_id: int, include_closed: bool = False) -> List[Di
 # --------------------------------------------------------------------------------
 # 4) AI Scrum Master Class
 # --------------------------------------------------------------------------------
+
+# Global user ID dictionary
+USER_ID_DICT = {
+    "user_id_1": "username_1",
+    "user_id_2": "username_2",
+    "user_id_3": "username_3",
+    # Add more user IDs and usernames as needed
+}
+
 class AIScrumMaster:
-    def __init__(self, user_id: str):
-        self.user_id = user_id  # To track user-specific data
+    def __init__(self, user_id: str, ms_teams_user_id: str):
+        self.user_id = user_id
+        self.ms_teams_user_id = ms_teams_user_id
+        self.user_data = USER_ID_DICT  # Use the global dictionary
         self.conversation_history = []
         self.current_sprint = None
-        self.team_members = set()
+        self.team_members = set()  # Now just a set of display names
         self.blockers = []
         self.action_items = []
         self.context_cache = {}  # For caching contextual history
@@ -342,13 +356,14 @@ class AIScrumMaster:
                 self.current_sprint = active_sprints[0]
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
-                    if assignee and assignee != "Unassigned":
-                        self.team_members.add(assignee)
-                        store_user(assignee, assignee)
+                    if isinstance(assignee, dict):
+                        member_display_name = assignee.get('displayName', 'Team Member')
+                        self.team_members.add(member_display_name)
+                        store_user(member_display_name, member_display_name)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
-                    self.team_members.add(self.user_id)
+                    self.team_members.add("Current User")
                 return True
         if not self.team_members:
             print("Warning: No team members found in the active sprint. Standup will skip to summary.")
@@ -360,7 +375,7 @@ class AIScrumMaster:
             return []
         return [
             issue for issue in self.current_sprint['issues']
-            if issue.get('Assignee') == member_name
+            if isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
         ]
 
     def build_tasks_context(self, member_name: str) -> str:
@@ -509,16 +524,22 @@ class AIScrumMaster:
             return "Thank you, all questions have been answered!"
         return refined_question
 
-    def add_user_response(self, member_name: str, response: str):
-        """Process and store the user response along with internal analysis and update context immediately."""
-        # Add user message to conversation history
+    def validate_sender(self, sender_id: str) -> bool:
+        """Validate the MS Teams user ID of the sender."""
+        return sender_id in self.user_data
+
+    def add_user_response(self, member_name: str, response: str, sender_id: str):
+        """Add user response only if the sender ID matches the stored MS Teams user ID."""
+        if not self.validate_sender(sender_id):
+            print(f"Ignoring message from sender ID: {sender_id} (does not match stored ID)")
+            return
+
         self.conversation_history.append({
             "role": "user",
             "content": response,
             "member_name": member_name,
             "timestamp": datetime.now(timezone.utc)
         })
-
         # Create an analysis prompt for the response
         analysis_prompt = f"""
 Analyze this response from {member_name}:
@@ -555,7 +576,6 @@ Please format your answer as a bullet list, and include the JSON object at the e
         raise NotImplementedError("generate_ai_response is not supported in backend-only mode.")
 
     def add_assistant_response(self, response: str, member_name: str):
-        """Store the assistant's response in conversation history."""
         self.conversation_history.append({
             "role": "assistant",
             "content": response,
@@ -716,6 +736,10 @@ Format the summary in markdown.
                 match.metadata for match in matches
                 if hasattr(match, "metadata") and getattr(match, "score", 0) >= threshold
             ]
+        except Exception as e:
+            print(f"Failed to fetch semantic cross-user context: {str(e)}")
+            return []
+            
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
             return []
