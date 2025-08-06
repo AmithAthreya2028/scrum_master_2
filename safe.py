@@ -311,9 +311,9 @@ USER_ID_DICT = {
 }
 
 class AIScrumMaster:
-    def __init__(self, user_id: str, ms_teams_user_id: str):
+    def __init__(self, user_id: str, ms_teams_user_id: Optional[str] = None):
         self.user_id = user_id
-        self.ms_teams_user_id = ms_teams_user_id
+        self.ms_teams_user_id = ms_teams_user_id or user_id
         self.user_data = USER_ID_DICT  # Use the global dictionary
         self.conversation_history = []
         self.current_sprint = None
@@ -531,8 +531,7 @@ class AIScrumMaster:
         """Validate the MS Teams user ID of the sender against the expected team member."""
         # Check if the sender is a known user
         if sender_id not in self.user_data:
-            print(f"Warning: Sender ID {sender_id} not found in USER_ID_DICT. Allowing message through.")
-            return True # Allow unknown users to proceed, but log it.
+            return False
         # Check if the sender's name matches the expected member's name
         return self.user_data[sender_id] == expected_member_name
 
@@ -717,6 +716,7 @@ Format the summary in markdown.
     def fetch_semantic_cross_user_context(self, task_description: str, exclude_user_id: Optional[str] = None, top_k: int = 5) -> list:
         """
         Fetch context for semantically similar tasks from all users except the current one.
+        Returns a list of dicts with member_name, user_id, and text.
         """
         if not index or not task_description:
             return []
