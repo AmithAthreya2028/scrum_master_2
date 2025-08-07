@@ -182,6 +182,7 @@ def store_user(user_id: str, display_name: str):
 
 def get_last_selected_board(user_id: str) -> Optional[int]:
     """Retrieve the last selected board for a user from MongoDB."""
+    # No auth, just use whatever user_id is provided
     doc = users_collection.find_one({"user_id": user_id})
     if doc and "last_board_id" in doc:
         return doc["last_board_id"]
@@ -189,6 +190,7 @@ def get_last_selected_board(user_id: str) -> Optional[int]:
 
 def set_last_selected_board(user_id: str, board_id: int):
     """Store the last selected board for a user in MongoDB."""
+    # No auth, just use whatever user_id is provided
     users_collection.update_one(
         {"user_id": user_id},
         {"$set": {"last_board_id": board_id}},
@@ -197,11 +199,13 @@ def set_last_selected_board(user_id: str, board_id: int):
 
 def store_conversation(conversation_doc: dict):
     """Store a conversation document into MongoDB."""
+    # No auth, just store as provided
     conversation_doc["date"] = datetime.now(timezone.utc)
     conversations_collection.insert_one(conversation_doc)
 
 def get_previous_standups(user_id: str, limit=5):
     """Retrieve recent standup documents from MongoDB for a specific user."""
+    # No auth, just use whatever user_id is provided
     cursor = conversations_collection.find({"user_id": user_id}).sort("date", -1).limit(limit)
     return list(cursor)
 
@@ -723,4 +727,3 @@ Format the summary in markdown.
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
             return []
-    
