@@ -723,3 +723,4 @@ Format the summary in markdown.
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
             return []
+    
