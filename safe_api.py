@@ -24,6 +24,9 @@ app = FastAPI(title="MS Teams Agentic Scrum")
 # In production, use a database or Redis for persistence
 bot_sessions = {}
 
+# Scrum Master ID (could be set via env or config, here hardcoded for demo)
+SCRUM_MASTER_ID = os.getenv("SCRUM_MASTER_ID", "scrum_master_id")  # Replace with actual Teams user ID/email
+
 class BotRequest(BaseModel):
     activity_id: str
     activity_type: str
@@ -42,9 +45,10 @@ class BotResponse(BaseModel):
 
 def get_or_create_session(session_id: Optional[str] = None, user_id: str = "unknown_user"):
     """Get existing session or create a new one"""
-    # Remove user_id dependency for session uniqueness
     if session_id and session_id in bot_sessions:
         return session_id, bot_sessions[session_id]
+
+    # Create new session
     new_session_id = session_id or str(uuid.uuid4())
     bot_sessions[new_session_id] = {
         "user_id": user_id,
@@ -357,6 +361,39 @@ async def process_message(request: BotRequest):
     import re
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
+    # SCRUM MASTER INTERVENTION HANDLING
+    if safe_user_id == SCRUM_MASTER_ID:
+        current_member_display_name = get_display_name(team_members[current_index]) if current_index < len(team_members) else "unknown"
+        session["messages"].append({
+            "role": "scrum_master",
+            "content": clean_response,
+            "member_name": current_member_display_name,
+            "timestamp": None
+        })
+        if session.get("scrum_master"):
+            session["scrum_master"].store_context_in_pinecone(
+                member_name=current_member_display_name,
+                response=clean_response,
+                analysis_result="[Scrum Master Intervention]"
+            )
+        if clean_response.lower() in ["resume standup", "done", "continue"]:
+            session["scrum_master_intervention"] = False
+        else:
+            session["scrum_master_intervention"] = True
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Scrum Master intervention recorded. Type 'resume standup' to continue.",
+                session_id=session_id,
+                requires_input=True
+            )
+    if session.get("scrum_master_intervention", False):
+        return BotResponse(
+            activity_id=request.activity_id,
+            text="Waiting for Scrum Master to finish intervention. Type 'resume standup' to continue.",
+            session_id=session_id,
+            requires_input=True
+        )
+
     if clean_response.lower() in ["change board", "switch board"]:
         session["selected_board_id"] = None
         boards = get_boards()
@@ -371,26 +408,34 @@ async def process_message(request: BotRequest):
         )
 
     if clean_response.lower() in ["end standup", "end", "finish"]:
-        summary = session["scrum_master"].generate_summary()
-        conversation_doc = {
-            "user_id": session["user_id"],
-            "messages": session["scrum_master"].conversation_history,
-            "summary": summary
-        }
-        store_conversation(conversation_doc)
-        session["standup_started"] = False
-        session["current_member_index"] = 0
-        session["conversation_step"] = 1
-        session["messages"] = []
-        session["show_summary"] = False
-        return BotResponse(
-            activity_id=request.activity_id,
-            text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
-            session_id=session_id,
-            is_end=True,
-            summary=summary,
-            requires_input=True
-        )
+        if session.get("scrum_master"):
+            summary = session["scrum_master"].generate_summary()
+            conversation_doc = {
+                "user_id": session["user_id"],
+                "messages": session["scrum_master"].conversation_history,
+                "summary": summary
+            }
+            store_conversation(conversation_doc)
+            session["standup_started"] = False
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["show_summary"] = False
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
+                session_id=session_id,
+                is_end=True,
+                summary=summary,
+                requires_input=True
+            )
+        else:
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Cannot generate summary: No active scrum master found.",
+                session_id=session_id,
+                requires_input=True
+            )
 
     if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
         session["standup_started"] = False

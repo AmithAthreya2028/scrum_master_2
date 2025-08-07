@@ -20,9 +20,19 @@ load_dotenv()
 
 app = FastAPI(title="MS Teams Agentic Scrum")
 
+
 # Session storage for bot state (in-memory for simplicity)
 # In production, use a database or Redis for persistence
 bot_sessions = {}
+
+# Hardcoded Teams user IDs for each member (from userid.txt)
+TEAM_MEMBER_IDS = {
+    "amith": "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA",
+    "rahuk": "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA",
+    "sachin": "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ",
+    "yuvraj": "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q"
+}
+
 
 class BotRequest(BaseModel):
     activity_id: str
@@ -53,7 +63,12 @@ def get_or_create_session(session_id: Optional[str] = None, user_id: str = "unkn
         "current_member_index": 0,
         "conversation_step": 1,
         "messages": [],
-        "team_members": [],
+    "team_members": [
+        {"name": "amith", "teams_id": TEAM_MEMBER_IDS["amith"]},
+        {"name": "rahuk", "teams_id": TEAM_MEMBER_IDS["rahuk"]},
+        {"name": "sachin", "teams_id": TEAM_MEMBER_IDS["sachin"]},
+        {"name": "yuvraj", "teams_id": TEAM_MEMBER_IDS["yuvraj"]}
+    ],
         "selected_board_id": None,
         "nothing_count": 0,
         "show_summary": False
@@ -371,18 +386,8 @@ async def process_message(request: BotRequest):
     import re
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
-    # --- User name extraction and cross-check logic ---
-    incoming_user_name = normalize_name(request.user_id)
-    print("Incoming:", incoming_user_name, "Expected:", expected_names)
-    expected_names = set()
-    if member_display_name:
-        expected_names.add(normalize_name(member_display_name))
-    if jira_name:
-        expected_names.add(normalize_name(str(jira_name)))
-    if ms_teams_name:
-        expected_names.add(normalize_name(str(ms_teams_name)))
-
-    if incoming_user_name not in expected_names:
+    # --- Per-person auth check using Teams user ID ---
+    if not is_authorized_user(session, request):
         return BotResponse(
             activity_id=request.activity_id,
             text=f"Waiting for a response from {member_display_name}. Only {member_display_name} can answer this question.",
@@ -801,11 +806,24 @@ def normalize_name(name: str) -> str:
     import re
     if not name:
         return ""
+
     # Lowercase, strip, collapse spaces, replace underscores/dots/dashes with space
     name = name.lower().strip()
     name = re.sub(r"[_\-.]", " ", name)
     name = re.sub(r"\s+", " ", name)
     return name
+
+
+# Update per-person auth check in process_message (or wherever you check who can answer)
+def is_authorized_user(session, request):
+    """Check if the incoming user is the expected one for this turn."""
+    team_members = session.get("team_members", [])
+    current_index = session.get("current_member_index", 0)
+    if not team_members or current_index >= len(team_members):
+        return True  # fallback: allow
+    expected_member = team_members[current_index]
+    expected_teams_id = expected_member.get("teams_id")
+    return request.user_id == expected_teams_id
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
