@@ -118,6 +118,8 @@ conversations_collection = db["conversations"]
 # --------------------------------------------------------------------------------
 def store_board(board: Dict):
     """Store a Jira board document into MongoDB."""
+    if not isinstance(board, dict):
+        return
     board_doc = {
         "board_id": board.get('id'),
         "name": board.get('name'),
@@ -131,6 +133,8 @@ def store_board(board: Dict):
 
 def store_sprint(sprint: Dict, board_id: int):
     """Store a sprint document into MongoDB."""
+    if not isinstance(sprint, dict):
+        return
     sprint_doc = {
         "sprint_id": sprint.get('id'),
         "board_id": board_id,
@@ -148,6 +152,8 @@ def store_sprint(sprint: Dict, board_id: int):
 
 def store_issue(issue: Dict, board_id: int, sprint_id: int):
     """Store an issue document into MongoDB."""
+    if not isinstance(issue, dict):
+        return
     issue_doc = {
         "issue_id": issue.get('Key'),
         "board_id": board_id,
@@ -223,29 +229,52 @@ def extract_content_from_adf(content):
 
 def get_field_value(issue: Dict, field_name: str) -> str:
     """Extract specific field values with proper fallback."""
+    if not isinstance(issue, dict):
+        return "Not available"
     fields = issue.get('fields', {})
+    if not isinstance(fields, dict):
+        return "Not available"
     if field_name == 'description':
         content = fields.get('description')
         return extract_content_from_adf(content) if content else "No description available"
     if field_name == 'assignee':
         assignee = fields.get('assignee')
-        return assignee.get('displayName') if assignee else "Unassigned"
+        return assignee.get('displayName') if isinstance(assignee, dict) else "Unassigned"
     if field_name == 'status':
         status = fields.get('status')
-        return status.get('name') if status else "Unknown"
+        return status.get('name') if isinstance(status, dict) else "Unknown"
     return str(fields.get(field_name, "Not available"))
 
 def get_issue_details(issue: Dict) -> Dict:
     """Return a dictionary with key details about an issue."""
+    if not isinstance(issue, dict):
+        return {}
     fields = issue.get('fields', {})
+    if not isinstance(fields, dict):
+        return {
+            'Key': issue.get('key'),
+            'Summary': "Invalid fields",
+            'Status': "Invalid fields",
+            'Assignee': None,
+            'Reporter': "Invalid fields",
+            'Priority': "Invalid fields",
+            'Issue Type': "Invalid fields",
+            'Created': "Invalid fields",
+            'Updated': "Invalid fields",
+            'Description': "Invalid fields"
+        }
+    
+    priority = fields.get('priority')
+    issuetype = fields.get('issuetype')
+
     return {
         'Key': issue.get('key'),
         'Summary': get_field_value(issue, 'summary'),
         'Status': get_field_value(issue, 'status'),
         'Assignee': fields.get('assignee'),  # <-- preserve full object
         'Reporter': get_field_value(issue, 'reporter'),
-        'Priority': fields.get('priority', {}).get('name', 'Not set'),
-        'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown'),
+        'Priority': priority.get('name', 'Not set') if isinstance(priority, dict) else 'Not set',
+        'Issue Type': issuetype.get('name', 'Unknown') if isinstance(issuetype, dict) else 'Unknown',
         'Created': fields.get('created', 'Unknown'),
         'Updated': fields.get('updated', 'Unknown'),
         'Description': get_field_value(issue, 'description')
@@ -373,8 +402,8 @@ class AIScrumMaster:
         if not tasks:
             return "No tasks assigned currently."
         return "\n".join([
-            f"- {task['Key']}: {task['Summary']} (Status: {task['Status']})"
-            for task in tasks
+            f"- {task.get('Key', 'N/A')}: {task.get('Summary', 'N/A')} (Status: {task.get('Status', 'N/A')})"
+            for task in tasks if isinstance(task, dict)
         ])
 
     def get_mongo_context(self, member_name: str) -> str:
@@ -658,7 +687,7 @@ Format the summary in markdown.
             "conversation_step": 1,
             "task_key": task_key
         }
-        sprint_id = self.current_sprint.get('id') if self.current_sprint else None
+        sprint_id = self.current_sprint.get('id') if isinstance(self.current_sprint, dict) else None
         if sprint_id != None:
             metadata['sprint_id'] = sprint_id
         try:

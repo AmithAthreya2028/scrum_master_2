@@ -156,7 +156,8 @@ async def start_session(request: BotRequest):
             boards = get_boards()
             board_text = "Please select a board by sending its ID:\n"
             for board in boards:
-                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+                if isinstance(board, dict):
+                    board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
             return BotResponse(
                 activity_id=request.activity_id,
                 text="Failed to initialize sprint data. Please try another board.\n\n" + board_text,
@@ -175,7 +176,8 @@ async def start_session(request: BotRequest):
         )
     board_text = "Please select a board by sending its ID:\n"
     for board in boards:
-        board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+        if isinstance(board, dict):
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
 
     return BotResponse(
         activity_id=request.activity_id,
@@ -201,7 +203,8 @@ async def select_board(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            if isinstance(board, dict):
+                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Invalid board ID. Please send a numeric ID.\n\n" + board_text,
@@ -211,11 +214,12 @@ async def select_board(request: BotRequest):
 
     # Fetch available boards and check validity
     boards = get_boards()
-    valid_board_ids = {board.get('id') for board in boards}
+    valid_board_ids = {board.get('id') for board in boards if isinstance(board, dict)}
     if board_id not in valid_board_ids:
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            if isinstance(board, dict):
+                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text=f"Invalid board ID. Please select from the following boards:\n\n{board_text}",
@@ -271,19 +275,18 @@ async def select_board(request: BotRequest):
             session_id=session_id,
             requires_input=True
         )
-    else:
+    else:   
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            if isinstance(board, dict):
+                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Failed to initialize sprint data. Please try another board.\n\n" + board_text,
             session_id=session_id,
             requires_input=True
-        )
-
-# Removed /select_user endpoint and logic, as member selection is no longer needed.
+        )# Removed /select_user endpoint and logic, as member selection is no longer needed.
 
 @app.post("/message", response_model=BotResponse)
 async def process_message(request: BotRequest):
@@ -313,7 +316,8 @@ async def process_message(request: BotRequest):
                 )
             board_text = "Please select a board by sending its ID:\n"
             for board in boards:
-                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+                if isinstance(board, dict):
+                    board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
             return BotResponse(
                 activity_id=request.activity_id,
                 text="Welcome to AI Scrum Master! Let me fetch the available boards.\n\n" + board_text,
@@ -398,7 +402,8 @@ async def process_message(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            if isinstance(board, dict):
+                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Board selection reset. Please select a new board:\n\n" + board_text,
@@ -709,7 +714,8 @@ async def teams_webhook(request: Request):
                             boards = get_boards()
                             board_text = "Please select a board by sending its ID:\n"
                             for board in boards:
-                                board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+                                if isinstance(board, dict):
+                                    board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
                             bot_response = BotResponse(
                                 activity_id=activity_id,
                                 text="Invalid board ID. Please send a numeric ID.\n\n" + board_text,
