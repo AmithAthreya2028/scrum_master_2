@@ -139,7 +139,7 @@ def store_sprint(sprint: Dict, board_id: int):
         "start_date": sprint.get('startDate'),
         "end_date": sprint.get('endDate'),
         "goal": sprint.get('goal', 'No goal set'),
-        "issues": [issue.get('Key') for issue in sprint.get('issues', [])]
+        "issues": [issue.get('Key') if isinstance(issue, dict) else str(issue) for issue in sprint.get('issues', [])]
     }
     try:
         sprints_collection.insert_one(sprint_doc)
@@ -364,7 +364,7 @@ class AIScrumMaster:
             return []
         return [
             issue for issue in self.current_sprint['issues']
-            if isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
+            if isinstance(issue, dict) and isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
         ]
 
     def build_tasks_context(self, member_name: str) -> str:
@@ -643,7 +643,7 @@ Format the summary in markdown.
         task_key = None
         if self.current_sprint:
             member_tasks = self.get_member_tasks(member_name)
-            if member_tasks:
+            if member_tasks and isinstance(member_tasks[0], dict):
                 task_key = member_tasks[0].get('Key')
         text = f"{member_name}'s response: {response}\nAnalysis: {analysis_result}"
         vector = safe_encode(embedding_model, text)
