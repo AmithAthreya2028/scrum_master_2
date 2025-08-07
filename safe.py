@@ -348,11 +348,12 @@ class AIScrumMaster:
             if active_sprints:
                 self.current_sprint = active_sprints[0]
                 for issue in self.current_sprint['issues']:
-                    assignee = issue.get('Assignee')
-                    if isinstance(assignee, dict):
-                        member_display_name = assignee.get('displayName', 'Team Member')
-                        self.team_members.add(member_display_name)
-                        store_user(member_display_name, member_display_name)
+                    if isinstance(issue, dict):
+                        assignee = issue.get('Assignee')
+                        if isinstance(assignee, dict):
+                            member_display_name = assignee.get('displayName', 'Team Member')
+                            self.team_members.add(member_display_name)
+                            store_user(member_display_name, member_display_name)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
