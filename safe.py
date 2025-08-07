@@ -164,15 +164,13 @@ def store_issue(issue: Dict, board_id: int, sprint_id: int):
     except DuplicateKeyError:
         print(f"Issue with id {issue.get('Key')} already exists.")
 
-def store_user(user_id: str, display_name: str, ms_teams_id: str = None):
-    """Store a user document into MongoDB, including MS Teams user ID."""
+def store_user(user_id: str, display_name: str):
+    """Store a user document into MongoDB."""
     user_doc = {
         "user_id": user_id,
         "display_name": display_name,
         "created_at": datetime.now(timezone.utc)
     }
-    if ms_teams_id:
-        user_doc["ms_teams_id"] = ms_teams_id
     try:
         users_collection.update_one(
             {"user_id": user_id},
@@ -300,48 +298,12 @@ def fetch_sprint_details(board_id: int, include_closed: bool = False) -> List[Di
 # --------------------------------------------------------------------------------
 # 4) AI Scrum Master Class
 # --------------------------------------------------------------------------------
-
-# Global user ID dictionary
-# Maps MS Teams ID to a dictionary containing their canonical name and JIRA display name.
-# This is the single source of truth for mapping users across platforms.
-USER_ID_DICT = {
-    "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA": {
-        "canonical_name": "Amith Athreya",
-        "jira_name": "Amith Athreya H"
-    },
-    "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA": {
-        "canonical_name": "Rahul Ashok",
-        "jira_name": "Rahul Ashok"
-    },
-    "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ": {
-        "canonical_name": "Sachin Kangralkar",
-        "jira_name": "sachin.kangralkar"
-    },
-    "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q": {
-        "canonical_name": "BeeramYuvaraj.Reddy",
-        "jira_name": "Beeram Yuvaraj Reddy"
-    },
-    # Add more user IDs and usernames as needed
-}
-
 class AIScrumMaster:
-    def __init__(self, user_id: str, ms_teams_user_id: Optional[str] = None):
+    def __init__(self, user_id: str):
         self.user_id = user_id
-        self.ms_teams_user_id = ms_teams_user_id or user_id
-        self.user_data = USER_ID_DICT  # Use the global dictionary
-
-        # Create a reverse map from normalized JIRA name to the user's Teams ID and canonical name
-        self.jira_name_to_user_map = {
-            details["jira_name"].strip().lower(): {
-                "teams_id": uid,
-                "canonical_name": details["canonical_name"]
-            }
-            for uid, details in self.user_data.items()
-        }
-
         self.conversation_history = []
         self.current_sprint = None
-        self.team_members = set()  # Now stores tuples of (canonical_name, teams_id)
+        self.team_members = set()  # Now just a set of display names
         self.blockers = []
         self.action_items = []
         self.context_cache = {}  # For caching contextual history
@@ -375,7 +337,7 @@ class AIScrumMaster:
                 })
 
     def initialize_sprint_data(self, board_id: int):
-        """Initialize sprint data from JIRA and map users to their Teams IDs."""
+        """Initialize sprint data from JIRA."""
         sprints = fetch_sprint_details(board_id, include_closed=False)
         if sprints:
             active_sprints = [s for s in sprints if s['state'] == 'active']
@@ -384,28 +346,13 @@ class AIScrumMaster:
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
                     if isinstance(assignee, dict):
-                        jira_display_name = assignee.get('displayName', 'Team Member')
-                        normalized_jira_name = jira_display_name.strip().lower()
-                        
-                        # Find the user details from the normalized JIRA name
-                        user_details = self.jira_name_to_user_map.get(normalized_jira_name)
-
-                        if user_details:
-                            canonical_name = user_details["canonical_name"]
-                            teams_id = user_details["teams_id"]
-                            self.team_members.add((canonical_name, teams_id))
-                            store_user(canonical_name, canonical_name, ms_teams_id=teams_id)
-                        else:
-                            print(f"Warning: Could not find a mapping for JIRA user '{jira_display_name}'. They will not be included in the standup.")
-
+                        member_display_name = assignee.get('displayName', 'Team Member')
+                        self.team_members.add(member_display_name)
+                        store_user(member_display_name, member_display_name)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
-                    # Add the person who started the standup
-                    starter_details = self.user_data.get(self.ms_teams_user_id)
-                    if starter_details:
-                        starter_name = starter_details.get("canonical_name", "Current User")
-                        self.team_members.add((starter_name, self.ms_teams_user_id))
+                    self.team_members.add("Current User")
                 return True
         if not self.team_members:
             print("Warning: No team members found in the active sprint. Standup will skip to summary.")
@@ -566,14 +513,7 @@ class AIScrumMaster:
             return "Thank you, all questions have been answered!"
         return refined_question
 
-    def validate_sender(self, sender_id: str, expected_member_id: str) -> bool:
-        """Validate the MS Teams user ID of the sender against the expected team member's ID."""
-        # Debug print to see what is being compared
-        print(f"Validating sender: Actual ID='{sender_id}', Expected ID='{expected_member_id}'")
-        return sender_id == expected_member_id
-
     def add_user_response(self, member_name: str, response: str):
-        """Add user response to conversation history and run analysis."""
         self.conversation_history.append({
             "role": "user",
             "content": response,
@@ -783,49 +723,3 @@ Format the summary in markdown.
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
             return []
-    def extract_user_id_from_payload(self, payload: dict) -> Optional[str]:
-        """
-        Extract MS Teams user ID from the incoming reply payload.
-        Assumes payload contains a 'from' field with 'id'.
-        """
-        from_obj = payload.get("from", {})
-        user_id = from_obj.get("id")
-        print(f"DEBUG: Extracted user_id from payload: '{user_id}'")
-        print(f"DEBUG: Full 'from' object: {from_obj}")
-        return user_id
-
-    def process_user_reply(self, payload: dict, member_data: tuple, response: str):
-        """
-        Extract user ID from payload, cross-check with user dict, and process or ignore the answer.
-        If user ID is valid, process the answer and move to next question.
-        If not, ignore the message.
-        """
-        sender_id = self.extract_user_id_from_payload(payload)
-        print(f"DEBUG: Member data received: {member_data}")
-        
-        try:
-            member_name, member_id = member_data
-            print(f"DEBUG: Unpacked member_name: '{member_name}', member_id: '{member_id}'")
-        except (ValueError, TypeError) as e:
-            print(f"ERROR: Failed to unpack member_data: {e}")
-            print(f"ERROR: Type of member_data: {type(member_data)}")
-            # Fallback in case the data format is unexpected
-            if isinstance(member_data, str):
-                member_name = member_data
-                member_id = None
-            else:
-                member_name = str(member_data)
-                member_id = None
-
-        # Compare as strings to handle different types gracefully
-        validation_result = self.validate_sender(str(sender_id), str(member_id))
-        print(f"DEBUG: Validation result: {validation_result}")
-
-        if not sender_id or not validation_result:
-            print(f"WARN: Ignoring message from sender ID: '{sender_id}'. Expected from '{member_name}' (ID: '{member_id}').")
-            return False  # Message ignored
-
-        # Process the answer
-        self.add_user_response(member_name, response)
-        print(f"INFO: Successfully processed answer from user '{sender_id}' for member '{member_name}'")
-        return True  # Message processed
