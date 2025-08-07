@@ -129,6 +129,20 @@ async def start_session(request: BotRequest):
         if session["scrum_master"].initialize_sprint_data(last_board_id):
             # Store team members with proper display names
             session["team_members"] = list(session["scrum_master"].team_members)
+            # Patch: Ensure each member dict has the correct Teams user ID
+            for member in session["team_members"]:
+                # Try to match by lowercased name (as in TEAM_MEMBER_IDS)
+                name_key = None
+                if isinstance(member, dict):
+                    name_key = member.get("name") or member.get("displayName")
+                elif isinstance(member, str):
+                    name_key = member
+                if name_key:
+                    key_lc = name_key.strip().lower()
+                    for k in TEAM_MEMBER_IDS:
+                        if k.lower() == key_lc:
+                            member["teams_id"] = TEAM_MEMBER_IDS[k]
+                            break
             if not session["team_members"]:
                 return BotResponse(
                     activity_id=request.activity_id,
@@ -245,7 +259,19 @@ async def select_board(request: BotRequest):
     if session["scrum_master"].initialize_sprint_data(board_id):
         # Store team members with proper handling for display names
         session["team_members"] = list(session["scrum_master"].team_members)
-
+        # Patch: Ensure each member dict has the correct Teams user ID
+        for member in session["team_members"]:
+            name_key = None
+            if isinstance(member, dict):
+                name_key = member.get("name") or member.get("displayName")
+            elif isinstance(member, str):
+                name_key = member
+            if name_key:
+                key_lc = name_key.strip().lower()
+                for k in TEAM_MEMBER_IDS:
+                    if k.lower() == key_lc:
+                        member["teams_id"] = TEAM_MEMBER_IDS[k]
+                        break
         if not session["team_members"]:
             return BotResponse(
                 activity_id=request.activity_id,
