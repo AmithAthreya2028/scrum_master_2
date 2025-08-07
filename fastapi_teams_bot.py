@@ -353,9 +353,43 @@ async def process_message(request: BotRequest):
     # Get current member data and ensure we have a proper display name
     member_data = team_members[current_index]
     member_display_name = get_display_name(member_data)
+    # Try to extract both JIRA and Teams names if available
+    jira_name = None
+    ms_teams_name = None
+    if isinstance(member_data, dict):
+        jira_name = member_data.get('displayName') or member_data.get('name')
+        ms_teams_name = member_data.get('ms_teams_name') or member_data.get('teamsName')
+    elif isinstance(member_data, str):
+        jira_name = member_data
+        ms_teams_name = member_data
+    elif isinstance(member_data, tuple):
+        # (id, display_name)
+        jira_name = member_data[1] if len(member_data) > 1 else member_data[0]
+        ms_teams_name = member_data[1] if len(member_data) > 1 else member_data[0]
+
     response = request.text
     import re
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
+
+    # --- User name extraction and cross-check logic ---
+    incoming_user_name = normalize_name(request.user_id)
+    print("Incoming:", incoming_user_name, "Expected:", expected_names)
+    expected_names = set()
+    if member_display_name:
+        expected_names.add(normalize_name(member_display_name))
+    if jira_name:
+        expected_names.add(normalize_name(str(jira_name)))
+    if ms_teams_name:
+        expected_names.add(normalize_name(str(ms_teams_name)))
+
+    if incoming_user_name not in expected_names:
+        return BotResponse(
+            activity_id=request.activity_id,
+            text=f"Waiting for a response from {member_display_name}. Only {member_display_name} can answer this question.",
+            session_id=session_id,
+            requires_input=True
+        )
+    # --- End user check ---
 
     if clean_response.lower() in ["change board", "switch board"]:
         session["selected_board_id"] = None
@@ -761,6 +795,17 @@ async def teams_webhook(request: Request):
             status_code=500,
             content={"error": f"Failed to process request: {str(e)}"}
         )
+
+def normalize_name(name: str) -> str:
+    """Normalize a name for robust comparison."""
+    import re
+    if not name:
+        return ""
+    # Lowercase, strip, collapse spaces, replace underscores/dots/dashes with space
+    name = name.lower().strip()
+    name = re.sub(r"[_\-.]", " ", name)
+    name = re.sub(r"\s+", " ", name)
+    return name
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
