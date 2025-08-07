@@ -1,5 +1,4 @@
 import os
-import re
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -21,19 +20,12 @@ load_dotenv()
 
 app = FastAPI(title="MS Teams Agentic Scrum")
 
-
 # Session storage for bot state (in-memory for simplicity)
 # In production, use a database or Redis for persistence
 bot_sessions = {}
 
-# Hardcoded Teams user IDs for each member (from userid.txt)
-TEAM_MEMBER_IDS = {
-    "amith": "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA",
-    "rahuk": "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA",
-    "sachin": "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ",
-    "yuvraj": "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q"
-}
-
+# Scrum Master ID (could be set via env or config, here hardcoded for demo)
+SCRUM_MASTER_ID = os.getenv("SCRUM_MASTER_ID", "scrum_master_id")  # Replace with actual Teams user ID/email
 
 class BotRequest(BaseModel):
     activity_id: str
@@ -53,9 +45,10 @@ class BotResponse(BaseModel):
 
 def get_or_create_session(session_id: Optional[str] = None, user_id: str = "unknown_user"):
     """Get existing session or create a new one"""
-    # Remove user_id dependency for session uniqueness
     if session_id and session_id in bot_sessions:
         return session_id, bot_sessions[session_id]
+
+    # Create new session
     new_session_id = session_id or str(uuid.uuid4())
     bot_sessions[new_session_id] = {
         "user_id": user_id,
@@ -64,12 +57,7 @@ def get_or_create_session(session_id: Optional[str] = None, user_id: str = "unkn
         "current_member_index": 0,
         "conversation_step": 1,
         "messages": [],
-    "team_members": [
-        {"name": "amith", "teams_id": TEAM_MEMBER_IDS["amith"]},
-        {"name": "rahuk", "teams_id": TEAM_MEMBER_IDS["rahuk"]},
-        {"name": "sachin", "teams_id": TEAM_MEMBER_IDS["sachin"]},
-        {"name": "yuvraj", "teams_id": TEAM_MEMBER_IDS["yuvraj"]}
-    ],
+        "team_members": [],
         "selected_board_id": None,
         "nothing_count": 0,
         "show_summary": False
@@ -85,7 +73,7 @@ def get_display_name(member_data):
         return member_data[1] if isinstance(member_data[1], str) else "Team Member"
     elif isinstance(member_data, dict):
         # Handle dictionary format
-        return member_data.get('displayName', member_data.get('name', 'Team Member')) if isinstance(member_data, dict) else 'Team Member'
+        return member_data.get('displayName', member_data.get('name', 'Team Member'))
     else:
         # Fallback for unknown formats
         return "Team Member"
@@ -130,20 +118,6 @@ async def start_session(request: BotRequest):
         if session["scrum_master"].initialize_sprint_data(last_board_id):
             # Store team members with proper display names
             session["team_members"] = list(session["scrum_master"].team_members)
-            # Patch: Ensure each member dict has the correct Teams user ID
-            for member in session["team_members"]:
-                # Try to match by lowercased name (as in TEAM_MEMBER_IDS)
-                name_key = None
-                if isinstance(member, dict):
-                    name_key = member.get("name") or member.get("displayName")
-                elif isinstance(member, str):
-                    name_key = member
-                if name_key:
-                    key_lc = name_key.strip().lower()
-                    for k in TEAM_MEMBER_IDS:
-                        if k.lower() == key_lc:
-                            member["teams_id"] = TEAM_MEMBER_IDS[k]
-                            break
             if not session["team_members"]:
                 return BotResponse(
                     activity_id=request.activity_id,
@@ -200,7 +174,7 @@ async def start_session(request: BotRequest):
         )
     board_text = "Please select a board by sending its ID:\n"
     for board in boards:
-        board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
+        board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
 
     return BotResponse(
         activity_id=request.activity_id,
@@ -226,7 +200,7 @@ async def select_board(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Invalid board ID. Please send a numeric ID.\n\n" + board_text,
@@ -236,11 +210,11 @@ async def select_board(request: BotRequest):
 
     # Fetch available boards and check validity
     boards = get_boards()
-    valid_board_ids = {board.get('id') if isinstance(board, dict) else None for board in boards}
+    valid_board_ids = {board.get('id') for board in boards}
     if board_id not in valid_board_ids:
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text=f"Invalid board ID. Please select from the following boards:\n\n{board_text}",
@@ -260,19 +234,7 @@ async def select_board(request: BotRequest):
     if session["scrum_master"].initialize_sprint_data(board_id):
         # Store team members with proper handling for display names
         session["team_members"] = list(session["scrum_master"].team_members)
-        # Patch: Ensure each member dict has the correct Teams user ID
-        for member in session["team_members"]:
-            name_key = None
-            if isinstance(member, dict):
-                name_key = member.get("name") or member.get("displayName")
-            elif isinstance(member, str):
-                name_key = member
-            if name_key:
-                key_lc = name_key.strip().lower()
-                for k in TEAM_MEMBER_IDS:
-                    if k.lower() == key_lc:
-                        member["teams_id"] = TEAM_MEMBER_IDS[k]
-                        break
+
         if not session["team_members"]:
             return BotResponse(
                 activity_id=request.activity_id,
@@ -312,7 +274,7 @@ async def select_board(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Failed to initialize sprint data. Please try another board.\n\n" + board_text,
@@ -395,40 +357,49 @@ async def process_message(request: BotRequest):
     # Get current member data and ensure we have a proper display name
     member_data = team_members[current_index]
     member_display_name = get_display_name(member_data)
-    # Try to extract both JIRA and Teams names if available
-    jira_name = None
-    ms_teams_name = None
-    if isinstance(member_data, dict):
-        jira_name = member_data.get('displayName') or member_data.get('name') if isinstance(member_data, dict) else None
-        ms_teams_name = member_data.get('ms_teams_name') or member_data.get('teamsName') if isinstance(member_data, dict) else None
-    elif isinstance(member_data, str):
-        jira_name = member_data
-        ms_teams_name = member_data
-    elif isinstance(member_data, tuple):
-        # (id, display_name)
-        jira_name = member_data[1] if len(member_data) > 1 else member_data[0]
-        ms_teams_name = member_data[1] if len(member_data) > 1 else member_data[0]
-
     response = request.text
     import re
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
 
-    # --- Per-person auth check using Teams user ID ---
-    if not is_authorized_user(session, request):
+    # SCRUM MASTER INTERVENTION HANDLING
+    if safe_user_id == SCRUM_MASTER_ID:
+        current_member_display_name = get_display_name(team_members[current_index]) if current_index < len(team_members) else "unknown"
+        session["messages"].append({
+            "role": "scrum_master",
+            "content": clean_response,
+            "member_name": current_member_display_name,
+            "timestamp": None
+        })
+        if session.get("scrum_master"):
+            session["scrum_master"].store_context_in_pinecone(
+                member_name=current_member_display_name,
+                response=clean_response,
+                analysis_result="[Scrum Master Intervention]"
+            )
+        if clean_response.lower() in ["resume standup", "done", "continue"]:
+            session["scrum_master_intervention"] = False
+        else:
+            session["scrum_master_intervention"] = True
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Scrum Master intervention recorded. Type 'resume standup' to continue.",
+                session_id=session_id,
+                requires_input=True
+            )
+    if session.get("scrum_master_intervention", False):
         return BotResponse(
             activity_id=request.activity_id,
-            text=f"Waiting for a response from {member_display_name}. Only {member_display_name} can answer this question.",
+            text="Waiting for Scrum Master to finish intervention. Type 'resume standup' to continue.",
             session_id=session_id,
             requires_input=True
         )
-    # --- End user check ---
 
     if clean_response.lower() in ["change board", "switch board"]:
         session["selected_board_id"] = None
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
+            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Board selection reset. Please select a new board:\n\n" + board_text,
@@ -437,26 +408,34 @@ async def process_message(request: BotRequest):
         )
 
     if clean_response.lower() in ["end standup", "end", "finish"]:
-        summary = session["scrum_master"].generate_summary()
-        conversation_doc = {
-            "user_id": session["user_id"],
-            "messages": session["scrum_master"].conversation_history,
-            "summary": summary
-        }
-        store_conversation(conversation_doc)
-        session["standup_started"] = False
-        session["current_member_index"] = 0
-        session["conversation_step"] = 1
-        session["messages"] = []
-        session["show_summary"] = False
-        return BotResponse(
-            activity_id=request.activity_id,
-            text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
-            session_id=session_id,
-            is_end=True,
-            summary=summary,
-            requires_input=True
-        )
+        if session.get("scrum_master"):
+            summary = session["scrum_master"].generate_summary()
+            conversation_doc = {
+                "user_id": session["user_id"],
+                "messages": session["scrum_master"].conversation_history,
+                "summary": summary
+            }
+            store_conversation(conversation_doc)
+            session["standup_started"] = False
+            session["current_member_index"] = 0
+            session["conversation_step"] = 1
+            session["messages"] = []
+            session["show_summary"] = False
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Standup Summary:\n\n" + summary + "\n\nIf you'd like to start another standup, type 'start'.",
+                session_id=session_id,
+                is_end=True,
+                summary=summary,
+                requires_input=True
+            )
+        else:
+            return BotResponse(
+                activity_id=request.activity_id,
+                text="Cannot generate summary: No active scrum master found.",
+                session_id=session_id,
+                requires_input=True
+            )
 
     if clean_response.lower() in ["stop", "cancel", "abort", "quit"]:
         session["standup_started"] = False
@@ -827,30 +806,6 @@ async def teams_webhook(request: Request):
             status_code=500,
             content={"error": f"Failed to process request: {str(e)}"}
         )
-
-def normalize_name(name: str) -> str:
-    """Normalize a name for robust comparison."""
-    import re
-    if not name:
-        return ""
-
-    # Lowercase, strip, collapse spaces, replace underscores/dots/dashes with space
-    name = name.lower().strip()
-    name = re.sub(r"[_\-.]", " ", name)
-    name = re.sub(r"\s+", " ", name)
-    return name
-
-
-# Update per-person auth check in process_message (or wherever you check who can answer)
-def is_authorized_user(session, request):
-    """Check if the incoming user is the expected one for this turn."""
-    team_members = session.get("team_members", [])
-    current_index = session.get("current_member_index", 0)
-    if not team_members or current_index >= len(team_members):
-        return True  # fallback: allow
-    expected_member = team_members[current_index]
-    expected_teams_id = expected_member.get("teams_id") if isinstance(expected_member, dict) else None
-    return request.user_id == expected_teams_id
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))

@@ -7,7 +7,6 @@ from pymongo.errors import DuplicateKeyError #type: ignore
 import google.generativeai as genai #type: ignore
 import requests
 from requests.auth import HTTPBasicAuth
-import numpy as np
 # import re
 # import json
 # import pandas as pd
@@ -120,50 +119,50 @@ conversations_collection = db["conversations"]
 def store_board(board: Dict):
     """Store a Jira board document into MongoDB."""
     board_doc = {
-        "board_id": board.get('id') if isinstance(board, dict) else None,
-        "name": board.get('name') if isinstance(board, dict) else None,
-        "type": board.get('type') if isinstance(board, dict) else None,
+        "board_id": board.get('id'),
+        "name": board.get('name'),
+        "type": board.get('type'),
         "created_at": datetime.now(timezone.utc),  # Use UTC for consistency
     }
     try:
         boards_collection.insert_one(board_doc)
     except DuplicateKeyError:
-        print(f"Board with id {board.get('id') if isinstance(board, dict) else board} already exists.")
+        print(f"Board with id {board.get('id')} already exists.")
 
 def store_sprint(sprint: Dict, board_id: int):
     """Store a sprint document into MongoDB."""
     sprint_doc = {
-        "sprint_id": sprint.get('id') if isinstance(sprint, dict) else None,
+        "sprint_id": sprint.get('id'),
         "board_id": board_id,
-        "name": sprint.get('name') if isinstance(sprint, dict) else None,
-        "state": sprint.get('state') if isinstance(sprint, dict) else None,
-        "start_date": sprint.get('startDate') if isinstance(sprint, dict) else None,
-        "end_date": sprint.get('endDate') if isinstance(sprint, dict) else None,
-        "goal": sprint.get('goal', 'No goal set') if isinstance(sprint, dict) else 'No goal set',
-        "issues": [issue.get('Key') if isinstance(issue, dict) else None for issue in sprint.get('issues', [])] if isinstance(sprint, dict) else []
+        "name": sprint.get('name'),
+        "state": sprint.get('state'),
+        "start_date": sprint.get('startDate'),
+        "end_date": sprint.get('endDate'),
+        "goal": sprint.get('goal', 'No goal set'),
+        "issues": [issue.get('Key') for issue in sprint.get('issues', [])]
     }
     try:
         sprints_collection.insert_one(sprint_doc)
     except DuplicateKeyError:
-        print(f"Sprint with id {sprint.get('id') if isinstance(sprint, dict) else sprint} already exists.")
+        print(f"Sprint with id {sprint.get('id')} already exists.")
 
 def store_issue(issue: Dict, board_id: int, sprint_id: int):
     """Store an issue document into MongoDB."""
     issue_doc = {
-        "issue_id": issue.get('Key') if isinstance(issue, dict) else None,
+        "issue_id": issue.get('Key'),
         "board_id": board_id,
         "sprint_id": sprint_id,
-        "summary": issue.get('Summary') if isinstance(issue, dict) else None,
-        "status": issue.get('Status') if isinstance(issue, dict) else None,
-        "assignee": issue.get('Assignee') if isinstance(issue, dict) else None,
-        "story_points": issue.get('story_points', None) if isinstance(issue, dict) else None,
-        "created_at": issue.get('Created') if isinstance(issue, dict) else None,
-        "updated_at": issue.get('Updated') if isinstance(issue, dict) else None
+        "summary": issue.get('Summary'),
+        "status": issue.get('Status'),
+        "assignee": issue.get('Assignee'),
+        "story_points": issue.get('story_points', None),
+        "created_at": issue.get('Created'),
+        "updated_at": issue.get('Updated')
     }
     try:
         issues_collection.insert_one(issue_doc)
     except DuplicateKeyError:
-        print(f"Issue with id {issue.get('Key') if isinstance(issue, dict) else issue} already exists.")
+        print(f"Issue with id {issue.get('Key')} already exists.")
 
 def store_user(user_id: str, display_name: str):
     """Store a user document into MongoDB."""
@@ -183,7 +182,6 @@ def store_user(user_id: str, display_name: str):
 
 def get_last_selected_board(user_id: str) -> Optional[int]:
     """Retrieve the last selected board for a user from MongoDB."""
-    # No auth, just use whatever user_id is provided
     doc = users_collection.find_one({"user_id": user_id})
     if doc and "last_board_id" in doc:
         return doc["last_board_id"]
@@ -191,7 +189,6 @@ def get_last_selected_board(user_id: str) -> Optional[int]:
 
 def set_last_selected_board(user_id: str, board_id: int):
     """Store the last selected board for a user in MongoDB."""
-    # No auth, just use whatever user_id is provided
     users_collection.update_one(
         {"user_id": user_id},
         {"$set": {"last_board_id": board_id}},
@@ -200,13 +197,11 @@ def set_last_selected_board(user_id: str, board_id: int):
 
 def store_conversation(conversation_doc: dict):
     """Store a conversation document into MongoDB."""
-    # No auth, just store as provided
     conversation_doc["date"] = datetime.now(timezone.utc)
     conversations_collection.insert_one(conversation_doc)
 
 def get_previous_standups(user_id: str, limit=5):
     """Retrieve recent standup documents from MongoDB for a specific user."""
-    # No auth, just use whatever user_id is provided
     cursor = conversations_collection.find({"user_id": user_id}).sort("date", -1).limit(limit)
     return list(cursor)
 
@@ -228,31 +223,31 @@ def extract_content_from_adf(content):
 
 def get_field_value(issue: Dict, field_name: str) -> str:
     """Extract specific field values with proper fallback."""
-    fields = issue.get('fields', {}) if isinstance(issue, dict) else {}
+    fields = issue.get('fields', {})
     if field_name == 'description':
-        content = fields.get('description') if isinstance(fields, dict) else None
+        content = fields.get('description')
         return extract_content_from_adf(content) if content else "No description available"
     if field_name == 'assignee':
-        assignee = fields.get('assignee') if isinstance(fields, dict) else None
-        return assignee.get('displayName') if isinstance(assignee, dict) else "Unassigned"
+        assignee = fields.get('assignee')
+        return assignee.get('displayName') if assignee else "Unassigned"
     if field_name == 'status':
-        status = fields.get('status') if isinstance(fields, dict) else None
-        return status.get('name') if isinstance(status, dict) else "Unknown"
-    return str(fields.get(field_name, "Not available")) if isinstance(fields, dict) else "Not available"
+        status = fields.get('status')
+        return status.get('name') if status else "Unknown"
+    return str(fields.get(field_name, "Not available"))
 
 def get_issue_details(issue: Dict) -> Dict:
     """Return a dictionary with key details about an issue."""
-    fields = issue.get('fields', {}) if isinstance(issue, dict) else {}
+    fields = issue.get('fields', {})
     return {
-        'Key': issue.get('key') if isinstance(issue, dict) else None,
+        'Key': issue.get('key'),
         'Summary': get_field_value(issue, 'summary'),
         'Status': get_field_value(issue, 'status'),
-        'Assignee': fields.get('assignee') if isinstance(fields, dict) else None,  # <-- preserve full object
+        'Assignee': fields.get('assignee'),  # <-- preserve full object
         'Reporter': get_field_value(issue, 'reporter'),
-        'Priority': fields.get('priority', {}).get('name', 'Not set') if isinstance(fields, dict) and isinstance(fields.get('priority'), dict) else 'Not set',
-        'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown') if isinstance(fields, dict) and isinstance(fields.get('issuetype'), dict) else 'Unknown',
-        'Created': fields.get('created', 'Unknown') if isinstance(fields, dict) else 'Unknown',
-        'Updated': fields.get('updated', 'Unknown') if isinstance(fields, dict) else 'Unknown',
+        'Priority': fields.get('priority', {}).get('name', 'Not set'),
+        'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown'),
+        'Created': fields.get('created', 'Unknown'),
+        'Updated': fields.get('updated', 'Unknown'),
         'Description': get_field_value(issue, 'description')
     }
 
@@ -296,7 +291,7 @@ def fetch_sprint_details(board_id: int, include_closed: bool = False) -> List[Di
                 store_issue(issue, board_id, sprint_id)
             sprints_list.append(sprint_data)
         return sprints_list
-    else:   
+    else:
         print(f"Error fetching sprints: {response.status_code} {response.text}")
         return []
 
@@ -349,12 +344,11 @@ class AIScrumMaster:
             if active_sprints:
                 self.current_sprint = active_sprints[0]
                 for issue in self.current_sprint['issues']:
-                    if isinstance(issue, dict):
-                        assignee = issue.get('Assignee')
-                        if isinstance(assignee, dict):
-                            member_display_name = assignee.get('displayName', 'Team Member')
-                            self.team_members.add(member_display_name)
-                            store_user(member_display_name, member_display_name)
+                    assignee = issue.get('Assignee')
+                    if isinstance(assignee, dict):
+                        member_display_name = assignee.get('displayName', 'Team Member')
+                        self.team_members.add(member_display_name)
+                        store_user(member_display_name, member_display_name)
                 # Fallback: if no team members found, allow the current user to proceed
                 if not self.team_members:
                     print("No team members found in the active sprint. Allowing current user to proceed.")
@@ -370,7 +364,7 @@ class AIScrumMaster:
             return []
         return [
             issue for issue in self.current_sprint['issues']
-            if isinstance(issue, dict) and isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
+            if isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
         ]
 
     def build_tasks_context(self, member_name: str) -> str:
@@ -380,7 +374,7 @@ class AIScrumMaster:
             return "No tasks assigned currently."
         return "\n".join([
             f"- {task['Key']}: {task['Summary']} (Status: {task['Status']})"
-            for task in tasks if isinstance(task, dict)
+            for task in tasks
         ])
 
     def get_mongo_context(self, member_name: str) -> str:
@@ -461,15 +455,14 @@ class AIScrumMaster:
         # Fetch cross-user context for each task
         cross_user_contexts = []
         for task in member_tasks:
-            if isinstance(task, dict):
-                task_key = task.get('Key')
-                if task_key:
-                    cross_context = self.fetch_cross_user_context(task_key, exclude_user_id=self.user_id)
-                    if cross_context:
-                        cross_user_contexts.append({
-                            "task_key": task_key,
-                            "context": cross_context
-                        })
+            task_key = task.get('Key')
+            if task_key:
+                cross_context = self.fetch_cross_user_context(task_key, exclude_user_id=self.user_id)
+                if cross_context:
+                    cross_user_contexts.append({
+                        "task_key": task_key,
+                        "context": cross_context
+                    })
 
         # Format cross-user context for the prompt
         cross_user_context_str = ""
@@ -614,8 +607,7 @@ Answer with a single word: "Complete" if the response is adequate, or "Incomplet
         for msg in recent_history:
             if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("member_name"):
                 participants.add(msg["member_name"])
-                if isinstance(msg.get("content"), str):
-                    user_updates.setdefault(msg["member_name"], []).append(msg["content"])
+                user_updates.setdefault(msg["member_name"], []).append(msg["content"])
         if hasattr(self, "team_members"):
             all_team_members = self.team_members
         else:
@@ -652,8 +644,7 @@ Format the summary in markdown.
         if self.current_sprint:
             member_tasks = self.get_member_tasks(member_name)
             if member_tasks:
-                first_task = member_tasks[0]
-                task_key = first_task.get('Key') if isinstance(first_task, dict) else None
+                task_key = member_tasks[0].get('Key')
         text = f"{member_name}'s response: {response}\nAnalysis: {analysis_result}"
         vector = safe_encode(embedding_model, text)
         vector_id = f"{self.user_id}-{datetime.now(timezone.utc).timestamp()}"
@@ -667,7 +658,7 @@ Format the summary in markdown.
             "conversation_step": 1,
             "task_key": task_key
         }
-        sprint_id = self.current_sprint.get('id') if isinstance(self.current_sprint, dict) else None
+        sprint_id = self.current_sprint.get('id') if self.current_sprint else None
         if sprint_id != None:
             metadata['sprint_id'] = sprint_id
         try:
