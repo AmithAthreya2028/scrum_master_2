@@ -227,31 +227,31 @@ def extract_content_from_adf(content):
 
 def get_field_value(issue: Dict, field_name: str) -> str:
     """Extract specific field values with proper fallback."""
-    fields = issue.get('fields', {})
+    fields = issue.get('fields', {}) if isinstance(issue, dict) else {}
     if field_name == 'description':
-        content = fields.get('description')
+        content = fields.get('description') if isinstance(fields, dict) else None
         return extract_content_from_adf(content) if content else "No description available"
     if field_name == 'assignee':
-        assignee = fields.get('assignee')
-        return assignee.get('displayName') if assignee else "Unassigned"
+        assignee = fields.get('assignee') if isinstance(fields, dict) else None
+        return assignee.get('displayName') if isinstance(assignee, dict) else "Unassigned"
     if field_name == 'status':
-        status = fields.get('status')
-        return status.get('name') if status else "Unknown"
-    return str(fields.get(field_name, "Not available"))
+        status = fields.get('status') if isinstance(fields, dict) else None
+        return status.get('name') if isinstance(status, dict) else "Unknown"
+    return str(fields.get(field_name, "Not available")) if isinstance(fields, dict) else "Not available"
 
 def get_issue_details(issue: Dict) -> Dict:
     """Return a dictionary with key details about an issue."""
-    fields = issue.get('fields', {})
+    fields = issue.get('fields', {}) if isinstance(issue, dict) else {}
     return {
-        'Key': issue.get('key'),
+        'Key': issue.get('key') if isinstance(issue, dict) else None,
         'Summary': get_field_value(issue, 'summary'),
         'Status': get_field_value(issue, 'status'),
-        'Assignee': fields.get('assignee'),  # <-- preserve full object
+        'Assignee': fields.get('assignee') if isinstance(fields, dict) else None,  # <-- preserve full object
         'Reporter': get_field_value(issue, 'reporter'),
-        'Priority': fields.get('priority', {}).get('name', 'Not set'),
-        'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown'),
-        'Created': fields.get('created', 'Unknown'),
-        'Updated': fields.get('updated', 'Unknown'),
+        'Priority': fields.get('priority', {}).get('name', 'Not set') if isinstance(fields, dict) and isinstance(fields.get('priority'), dict) else 'Not set',
+        'Issue Type': fields.get('issuetype', {}).get('name', 'Unknown') if isinstance(fields, dict) and isinstance(fields.get('issuetype'), dict) else 'Unknown',
+        'Created': fields.get('created', 'Unknown') if isinstance(fields, dict) else 'Unknown',
+        'Updated': fields.get('updated', 'Unknown') if isinstance(fields, dict) else 'Unknown',
         'Description': get_field_value(issue, 'description')
     }
 
@@ -295,7 +295,7 @@ def fetch_sprint_details(board_id: int, include_closed: bool = False) -> List[Di
                 store_issue(issue, board_id, sprint_id)
             sprints_list.append(sprint_data)
         return sprints_list
-    else:
+    else:   
         print(f"Error fetching sprints: {response.status_code} {response.text}")
         return []
 
@@ -651,7 +651,8 @@ Format the summary in markdown.
         if self.current_sprint:
             member_tasks = self.get_member_tasks(member_name)
             if member_tasks:
-                task_key = member_tasks[0].get('Key')
+                first_task = member_tasks[0]
+                task_key = first_task.get('Key') if isinstance(first_task, dict) else None
         text = f"{member_name}'s response: {response}\nAnalysis: {analysis_result}"
         vector = safe_encode(embedding_model, text)
         vector_id = f"{self.user_id}-{datetime.now(timezone.utc).timestamp()}"
@@ -665,7 +666,7 @@ Format the summary in markdown.
             "conversation_step": 1,
             "task_key": task_key
         }
-        sprint_id = self.current_sprint.get('id') if self.current_sprint else None
+        sprint_id = self.current_sprint.get('id') if isinstance(self.current_sprint, dict) else None
         if sprint_id != None:
             metadata['sprint_id'] = sprint_id
         try:
