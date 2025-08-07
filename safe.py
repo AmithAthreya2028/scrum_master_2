@@ -119,50 +119,50 @@ conversations_collection = db["conversations"]
 def store_board(board: Dict):
     """Store a Jira board document into MongoDB."""
     board_doc = {
-        "board_id": board.get('id'),
-        "name": board.get('name'),
-        "type": board.get('type'),
+        "board_id": board.get('id') if isinstance(board, dict) else None,
+        "name": board.get('name') if isinstance(board, dict) else None,
+        "type": board.get('type') if isinstance(board, dict) else None,
         "created_at": datetime.now(timezone.utc),  # Use UTC for consistency
     }
     try:
         boards_collection.insert_one(board_doc)
     except DuplicateKeyError:
-        print(f"Board with id {board.get('id')} already exists.")
+        print(f"Board with id {board.get('id') if isinstance(board, dict) else board} already exists.")
 
 def store_sprint(sprint: Dict, board_id: int):
     """Store a sprint document into MongoDB."""
     sprint_doc = {
-        "sprint_id": sprint.get('id'),
+        "sprint_id": sprint.get('id') if isinstance(sprint, dict) else None,
         "board_id": board_id,
-        "name": sprint.get('name'),
-        "state": sprint.get('state'),
-        "start_date": sprint.get('startDate'),
-        "end_date": sprint.get('endDate'),
-        "goal": sprint.get('goal', 'No goal set'),
-        "issues": [issue.get('Key') for issue in sprint.get('issues', [])]
+        "name": sprint.get('name') if isinstance(sprint, dict) else None,
+        "state": sprint.get('state') if isinstance(sprint, dict) else None,
+        "start_date": sprint.get('startDate') if isinstance(sprint, dict) else None,
+        "end_date": sprint.get('endDate') if isinstance(sprint, dict) else None,
+        "goal": sprint.get('goal', 'No goal set') if isinstance(sprint, dict) else 'No goal set',
+        "issues": [issue.get('Key') if isinstance(issue, dict) else None for issue in sprint.get('issues', [])] if isinstance(sprint, dict) else []
     }
     try:
         sprints_collection.insert_one(sprint_doc)
     except DuplicateKeyError:
-        print(f"Sprint with id {sprint.get('id')} already exists.")
+        print(f"Sprint with id {sprint.get('id') if isinstance(sprint, dict) else sprint} already exists.")
 
 def store_issue(issue: Dict, board_id: int, sprint_id: int):
     """Store an issue document into MongoDB."""
     issue_doc = {
-        "issue_id": issue.get('Key'),
+        "issue_id": issue.get('Key') if isinstance(issue, dict) else None,
         "board_id": board_id,
         "sprint_id": sprint_id,
-        "summary": issue.get('Summary'),
-        "status": issue.get('Status'),
-        "assignee": issue.get('Assignee'),
-        "story_points": issue.get('story_points', None),
-        "created_at": issue.get('Created'),
-        "updated_at": issue.get('Updated')
+        "summary": issue.get('Summary') if isinstance(issue, dict) else None,
+        "status": issue.get('Status') if isinstance(issue, dict) else None,
+        "assignee": issue.get('Assignee') if isinstance(issue, dict) else None,
+        "story_points": issue.get('story_points', None) if isinstance(issue, dict) else None,
+        "created_at": issue.get('Created') if isinstance(issue, dict) else None,
+        "updated_at": issue.get('Updated') if isinstance(issue, dict) else None
     }
     try:
         issues_collection.insert_one(issue_doc)
     except DuplicateKeyError:
-        print(f"Issue with id {issue.get('Key')} already exists.")
+        print(f"Issue with id {issue.get('Key') if isinstance(issue, dict) else issue} already exists.")
 
 def store_user(user_id: str, display_name: str):
     """Store a user document into MongoDB."""
