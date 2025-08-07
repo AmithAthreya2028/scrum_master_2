@@ -7,6 +7,7 @@ from pymongo.errors import DuplicateKeyError #type: ignore
 import google.generativeai as genai #type: ignore
 import requests
 from requests.auth import HTTPBasicAuth
+import numpy as np
 # import re
 # import json
 # import pandas as pd

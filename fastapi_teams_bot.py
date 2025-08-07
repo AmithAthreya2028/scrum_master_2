@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Optional
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -84,7 +85,7 @@ def get_display_name(member_data):
         return member_data[1] if isinstance(member_data[1], str) else "Team Member"
     elif isinstance(member_data, dict):
         # Handle dictionary format
-        return member_data.get('displayName', member_data.get('name', 'Team Member'))
+        return member_data.get('displayName', member_data.get('name', 'Team Member')) if isinstance(member_data, dict) else 'Team Member'
     else:
         # Fallback for unknown formats
         return "Team Member"
@@ -199,7 +200,7 @@ async def start_session(request: BotRequest):
         )
     board_text = "Please select a board by sending its ID:\n"
     for board in boards:
-        board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+        board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
 
     return BotResponse(
         activity_id=request.activity_id,
@@ -225,7 +226,7 @@ async def select_board(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Invalid board ID. Please send a numeric ID.\n\n" + board_text,
@@ -235,11 +236,11 @@ async def select_board(request: BotRequest):
 
     # Fetch available boards and check validity
     boards = get_boards()
-    valid_board_ids = {board.get('id') for board in boards}
+    valid_board_ids = {board.get('id') if isinstance(board, dict) else None for board in boards}
     if board_id not in valid_board_ids:
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text=f"Invalid board ID. Please select from the following boards:\n\n{board_text}",
@@ -311,7 +312,7 @@ async def select_board(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Failed to initialize sprint data. Please try another board.\n\n" + board_text,
@@ -398,8 +399,8 @@ async def process_message(request: BotRequest):
     jira_name = None
     ms_teams_name = None
     if isinstance(member_data, dict):
-        jira_name = member_data.get('displayName') or member_data.get('name')
-        ms_teams_name = member_data.get('ms_teams_name') or member_data.get('teamsName')
+        jira_name = member_data.get('displayName') or member_data.get('name') if isinstance(member_data, dict) else None
+        ms_teams_name = member_data.get('ms_teams_name') or member_data.get('teamsName') if isinstance(member_data, dict) else None
     elif isinstance(member_data, str):
         jira_name = member_data
         ms_teams_name = member_data
@@ -427,7 +428,7 @@ async def process_message(request: BotRequest):
         boards = get_boards()
         board_text = "Please select a board by sending its ID:\n"
         for board in boards:
-            board_text += f"- {board.get('name', 'Unknown')} (ID: {board.get('id', 'N/A')})\n"
+            board_text += f"- {board.get('name', 'Unknown') if isinstance(board, dict) else 'Unknown'} (ID: {board.get('id', 'N/A') if isinstance(board, dict) else 'N/A'})\n"
         return BotResponse(
             activity_id=request.activity_id,
             text="Board selection reset. Please select a new board:\n\n" + board_text,
@@ -848,7 +849,7 @@ def is_authorized_user(session, request):
     if not team_members or current_index >= len(team_members):
         return True  # fallback: allow
     expected_member = team_members[current_index]
-    expected_teams_id = expected_member.get("teams_id")
+    expected_teams_id = expected_member.get("teams_id") if isinstance(expected_member, dict) else None
     return request.user_id == expected_teams_id
 
 if __name__ == "__main__":
