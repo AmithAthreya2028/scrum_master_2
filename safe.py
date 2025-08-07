@@ -459,14 +459,15 @@ class AIScrumMaster:
         # Fetch cross-user context for each task
         cross_user_contexts = []
         for task in member_tasks:
-            task_key = task.get('Key')
-            if task_key:
-                cross_context = self.fetch_cross_user_context(task_key, exclude_user_id=self.user_id)
-                if cross_context:
-                    cross_user_contexts.append({
-                        "task_key": task_key,
-                        "context": cross_context
-                    })
+            if isinstance(task, dict):
+                task_key = task.get('Key')
+                if task_key:
+                    cross_context = self.fetch_cross_user_context(task_key, exclude_user_id=self.user_id)
+                    if cross_context:
+                        cross_user_contexts.append({
+                            "task_key": task_key,
+                            "context": cross_context
+                        })
 
         # Format cross-user context for the prompt
         cross_user_context_str = ""
