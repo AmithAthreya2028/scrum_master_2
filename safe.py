@@ -368,7 +368,7 @@ class AIScrumMaster:
             return []
         return [
             issue for issue in self.current_sprint['issues']
-            if isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
+            if isinstance(issue, dict) and isinstance(issue.get('Assignee'), dict) and issue.get('Assignee', {}).get('displayName') == member_name
         ]
 
     def build_tasks_context(self, member_name: str) -> str:
@@ -378,7 +378,7 @@ class AIScrumMaster:
             return "No tasks assigned currently."
         return "\n".join([
             f"- {task['Key']}: {task['Summary']} (Status: {task['Status']})"
-            for task in tasks
+            for task in tasks if isinstance(task, dict)
         ])
 
     def get_mongo_context(self, member_name: str) -> str:
@@ -612,7 +612,8 @@ Answer with a single word: "Complete" if the response is adequate, or "Incomplet
         for msg in recent_history:
             if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("member_name"):
                 participants.add(msg["member_name"])
-                user_updates.setdefault(msg["member_name"], []).append(msg["content"])
+                if isinstance(msg.get("content"), str):
+                    user_updates.setdefault(msg["member_name"], []).append(msg["content"])
         if hasattr(self, "team_members"):
             all_team_members = self.team_members
         else:
