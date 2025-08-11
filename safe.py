@@ -340,6 +340,7 @@ class AIScrumMaster:
         self.action_items = []
         self.context_cache = {}
         self.current_member_name: Optional[str] = None
+        self.team_members = []  # <-- Added to prevent attribute error
 
         # Initialize with a system prompt
         self.system_prompt = (
