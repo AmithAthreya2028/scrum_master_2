@@ -67,7 +67,7 @@ jira_headers = {"Accept": "application/json"}
 # Gemini Configuration
 print("Gemini API Key (debug):", os.getenv("GEMINI_API_KEY"))  # Debug print for verification
 genai.configure(api_key=os.getenv("GEMINI_API_KEY")) #type: ignore
-model = genai.GenerativeModel('gemini-2.5-flash')#type: ignore
+model = genai.GenerativeModel('gemini-1.5-flash')#type: ignore
 
 # Pinecone Configuration
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
@@ -170,21 +170,24 @@ def store_issue(issue: Dict, board_id: int, sprint_id: int):
     except DuplicateKeyError:
         print(f"Issue with id {issue.get('Key')} already exists.")
 
-def store_user(user_id: str, display_name: str):
-    """Store a user document into MongoDB."""
+def store_user(user_id: str, display_name: str, jira_account_id: Optional[str] = None, msteams_id: Optional[str] = None):
+    """Store or update a user document in MongoDB with IDs from different systems."""
     user_doc = {
         "user_id": user_id,
         "display_name": display_name,
         "created_at": datetime.now(timezone.utc)
     }
-    try:
-        users_collection.update_one(
-            {"user_id": user_id},
-            {"$set": user_doc},
-            upsert=True
-        )
-    except DuplicateKeyError:
-        print(f"User with id {user_id} already exists.")
+    update_set = {"$set": user_doc}
+    if jira_account_id:
+        update_set["$set"]["jira_account_id"] = jira_account_id
+    if msteams_id:
+        update_set["$set"]["msteams_id"] = msteams_id
+        
+    users_collection.update_one(
+        {"user_id": user_id},
+        update_set,
+        upsert=True
+    )
 
 def get_last_selected_board(user_id: str) -> Optional[int]:
     """Retrieve the last selected board for a user from MongoDB."""
@@ -332,10 +335,11 @@ class AIScrumMaster:
         self.user_id = user_id
         self.conversation_history = []
         self.current_sprint = None
-        self.team_members = set()  # Now just a set of display names
+        self.team_member_details: Dict[str, Dict] = {} 
         self.blockers = []
         self.action_items = []
-        self.context_cache = {}  # For caching contextual history
+        self.context_cache = {}
+        self.current_member_name: Optional[str] = None
 
         # Initialize with a system prompt
         self.system_prompt = (
@@ -354,7 +358,6 @@ class AIScrumMaster:
         })
 
         # Load previous standups
-        # Only load summaries from previous standups, not full messages
         previous_standups = get_previous_standups(self.user_id, limit=3)
         for doc in reversed(previous_standups):
             summary = doc.get("summary")
@@ -366,26 +369,78 @@ class AIScrumMaster:
                 })
 
     def initialize_sprint_data(self, board_id: int):
-        """Initialize sprint data from JIRA."""
+        """Initialize sprint data, and build a map of team members with their Jira and Teams IDs."""
         sprints = fetch_sprint_details(board_id, include_closed=False)
         if sprints:
             active_sprints = [s for s in sprints if s['state'] == 'active']
             if active_sprints:
                 self.current_sprint = active_sprints[0]
+                
+                ### MODIFICATION: Using the MS Teams IDs you provided.
+                # In a real app, this map would be built by querying your MongoDB user collection.
+                MOCK_TEAMS_ID_MAP = {
+                    "Amith": "29:1EaTSFcrZkjsH3S6cgT9h88AzHL4AqFSmyE2I7LfhIGBu3QpI9aBXxuB0ChMkDWSRYYQEQuUK6Lc-mGoNzB58FA",
+                    "Rahul K": "29:1XFcY26AqQUhnEbXtLhwS92rQRZyu_bxLNHQiswlKNKffy9as-xn2rpVmArUCfUtAC8eEaS2O9ZWvM4fOSe4NdA",
+                    "Sachin": "29:1wIHM0iaGI3IKzW-fHfzzPQ2K5E1MbVjRVoNK2OnodxBhotBQmxgSX1fCB-8laPQbCEEhUzw-PPTyVt_YML3HzQ",
+                    "Yuvraj": "29:15PQxlsgRCbsfORrMJT0-tjx2986KF1qJCW1b8YwD62ocx37V5R6zd6gNY7jNacSTdZZRwUTiPq7N10zwfDph7Q"
+                    # NOTE: Ensure the keys here (e.g., "Amith") exactly match the 'displayName' in Jira.
+                }
+
                 for issue in self.current_sprint['issues']:
                     assignee = issue.get('Assignee')
                     if isinstance(assignee, dict):
-                        member_display_name = assignee.get('displayName', 'Team Member')
-                        self.team_members.add(member_display_name)
-                        store_user(member_display_name, member_display_name)
-                # Fallback: if no team members found, allow the current user to proceed
-                if not self.team_members:
-                    print("No team members found in the active sprint. Allowing current user to proceed.")
-                    self.team_members.add("Current User")
+                        display_name = assignee.get('displayName')
+                        if display_name and display_name not in self.team_member_details:
+                            self.team_member_details[display_name] = {
+                                'jira_user': assignee,
+                                'msteams_id': MOCK_TEAMS_ID_MAP.get(display_name)
+                            }
+
+                if not self.team_member_details:
+                    print("Warning: No assigned team members found in the active sprint.")
                 return True
-        if not self.team_members:
-            print("Warning: No team members found in the active sprint. Standup will skip to summary.")
         return False
+    
+    def handle_user_reply(self, responding_teams_id: str, response_text: str) -> str:
+        """
+        Verifies the user identity before processing their response.
+        
+        Args:
+            responding_teams_id: The `from.id` of the user who sent the message in MS Teams.
+            response_text: The `text` content of the message.
+            
+        Returns:
+            A string indicating success or an error message.
+        """
+        if not self.current_member_name:
+            return "Thanks for the message, but I'm not currently waiting for a response from anyone. Let's start the stand-up."
+
+        expected_member_info = self.team_member_details.get(self.current_member_name)
+        if not expected_member_info:
+            return f"Error: I was expecting a reply from {self.current_member_name}, but they are not in my list of team members."
+            
+        expected_teams_id = expected_member_info.get('msteams_id')
+        
+        if not expected_teams_id:
+            print(f"WARNING: No MS Teams ID is mapped for {self.current_member_name}. Skipping user verification for this turn.")
+        
+        elif responding_teams_id != expected_teams_id:
+            responding_user_name = "an unknown user"
+            for name, details in self.team_member_details.items():
+                if details.get('msteams_id') == responding_teams_id:
+                    responding_user_name = name
+                    break
+            
+            error_message = (
+                f"Hold on! I was expecting a response from **{self.current_member_name}**, "
+                f"but this reply came from **{responding_user_name}**. "
+                "Please wait for your turn."
+            )
+            return error_message
+
+        self.add_user_response(self.current_member_name, response_text)
+        return f"Thanks, {self.current_member_name}! I've recorded your update."
+
 
     def get_member_tasks(self, member_name: str) -> List[Dict]:
         """Get active tasks for a team member from the current sprint."""
@@ -407,7 +462,6 @@ class AIScrumMaster:
         ])
 
     def get_mongo_context(self, member_name: str) -> str:
-        # Retrieve only the latest 3 summaries for this user from previous standups
         docs = get_previous_standups(self.user_id, limit=3)
         summaries = [doc.get("summary") for doc in docs if doc.get("summary")]
         if summaries:
@@ -425,10 +479,6 @@ class AIScrumMaster:
         return context_str
 
     def fetch_relevant_context(self, query: str, top_k: int = 5) -> list:
-        """
-        Fetch relevant context from Pinecone for a given query string.
-        Returns a list of dicts with 'text' and other metadata.
-        """
         if not index:
             return []
         try:
@@ -447,41 +497,32 @@ class AIScrumMaster:
 
     def generate_question(self, member_name: str, step: int) -> str:
         """
-        Generate the next appropriate question for the user, using the full conversation history
-        for this user in the current standup, and summaries from previous standups, with explicit
-        instructions to avoid repeating topics. Also, reference context from other users who have worked on the same task.
+        Generate the next appropriate question for the user and sets the context
+        to expect a reply from this specific user.
         """
-        # Gather all Q&A for this member in the current standup
+        self.current_member_name = member_name
+
         member_history = []
         for msg in self.conversation_history:
-            # Only include messages relevant to this member in this standup
-            # (Assumes user responses are always after an assistant question for that user)
             if msg.get("member_name") == member_name:
                 member_history.append({"role": msg["role"], "content": msg["content"]})
 
-        # Format the Q&A history for the prompt
         qa_history = ""
         for msg in member_history:
             if msg["role"] == "assistant":
                 qa_history += f"Assistant asked: {msg['content']}\n"
             elif msg["role"] == "user":
                 qa_history += f"{member_name} replied: {msg['content']}\n"
-        # If there is no prior conversation for this user in this standup, make it explicit
         if not qa_history:
             qa_history = f"No prior conversation history for {member_name} in this standup. This is the first question for {member_name}."
 
-        # Gather previous standup summaries for this user
         previous_standups = get_previous_standups(self.user_id, limit=3)
-        previous_summaries = [
-            doc.get("summary") for doc in previous_standups if doc.get("summary")
-        ]
+        previous_summaries = [doc.get("summary") for doc in previous_standups if doc.get("summary")]
         previous_context = "\n".join(f"- {summary}" for summary in previous_summaries) if previous_summaries else "No previous standup summaries available."
 
-        # Gather JIRA tasks context for this user in the current sprint
         tasks_context = self.build_tasks_context(member_name)
         member_tasks = self.get_member_tasks(member_name)
 
-        # Fetch cross-user context for each task
         cross_user_contexts = []
         for task in member_tasks:
             task_key = task.get('Key')
@@ -493,7 +534,6 @@ class AIScrumMaster:
                         "context": cross_context
                     })
 
-        # Format cross-user context for the prompt
         cross_user_context_str = ""
         for item in cross_user_contexts:
             cross_user_updates = "\n".join(
@@ -502,7 +542,6 @@ class AIScrumMaster:
             )
             cross_user_context_str += f"\nOther team members' updates for task {item['task_key']}:\n{cross_user_updates}\n"
 
-        # Standard Scrum questions for reference
         scrum_questions = [
             "What did you work on since the last standup?",
             "What are you planning to work on today?",
@@ -543,13 +582,14 @@ class AIScrumMaster:
         return refined_question
 
     def add_user_response(self, member_name: str, response: str):
+        """Processes and stores a user's response after it has been verified."""
         self.conversation_history.append({
             "role": "user",
             "content": response,
             "member_name": member_name,
             "timestamp": datetime.now(timezone.utc)
         })
-        # Create an analysis prompt for the response
+        
         analysis_prompt = f"""
 Analyze this response from {member_name}:
 ---
@@ -563,26 +603,13 @@ Provide:
 Please format your answer as a bullet list, and include the JSON object at the end.
 """
         analysis_result = model.generate_content(analysis_prompt).text.strip()
-        # Append the internal analysis as an assistant message.
         analysis_message = f"[Internal Analysis]\n{analysis_result}"
         self.conversation_history.append({
             "role": "assistant",
             "content": analysis_message,
             "timestamp": datetime.now(timezone.utc)
         })
-
-
-
-        # Store this conversation turn in Pinecone for future context
         self.store_context_in_pinecone(member_name, response, analysis_result)
-
-    def generate_ai_response(self) -> str:
-        """
-        Generate a follow-up question for the current conversation step.
-        (By design, we use our fixed question mapping so the assistant does not reveal underlying context.)
-        """
-        # Streamlit session state removed; this method should not be used in backend-only context
-        raise NotImplementedError("generate_ai_response is not supported in backend-only mode.")
 
     def add_assistant_response(self, response: str, member_name: str):
         self.conversation_history.append({
@@ -593,14 +620,9 @@ Please format your answer as a bullet list, and include the JSON object at the e
         })
 
     def check_response_completeness(self, member_name: str, response: str) -> bool:
-        """
-        Analyze the response to determine if it is complete.
-        If the response is trivial (like 'nothing' or 'no'), consider it complete.
-        Otherwise, use the LLM to analyze further.
-        """
         normalized = response.strip().lower()
         if normalized in ["nothing", "nothing thank you", "no", "none"]:
-            return True  # Treat these as complete responses
+            return True
 
         prompt = f"""
 You are an AI Scrum Master. Analyze the following standup response from {member_name}:
@@ -609,15 +631,7 @@ You are an AI Scrum Master. Analyze the following standup response from {member_
 ---
 Consider the response 'Complete' if the user gives any reasonable update, even if it is brief, informal, or non-technical (e.g., 'I'm working on it', 'All good', 'No blockers', 'Progressing', etc.).
 Only mark as 'Incomplete' if the response is completely missing, off-topic, or does not address the question at all.
-Examples of responses that should be considered 'Complete':
-- 'I'm working on it'
-- 'No blockers'
-- 'Progressing'
-- 'All good'
-- 'Done'
-- 'Fixed'
-- 'Still working'
-Answer with a single word: "Complete" if the response is adequate, or "Incomplete" if further follow-up is needed. Then, provide a brief explanation.
+Answer with a single word: "Complete" or "Incomplete", followed by a brief explanation.
 """
         result = model.generate_content(prompt).text.strip()
         print("Completeness Analysis:", result)
@@ -625,22 +639,14 @@ Answer with a single word: "Complete" if the response is adequate, or "Incomplet
             return True
         return False
 
-
     def generate_summary(self) -> str:
-        """Generate a summary of the standup."""
-        # Use the full conversation history for summary so all participants are included
         recent_history = self.conversation_history
-        # Gather all unique team members who participated in this standup
         participants = set()
-        user_updates = {}
         for msg in recent_history:
             if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("member_name"):
                 participants.add(msg["member_name"])
-                user_updates.setdefault(msg["member_name"], []).append(msg["content"])
-        if hasattr(self, "team_members"):
-            all_team_members = self.team_members
-        else:
-            all_team_members = participants
+        
+        all_team_members = list(self.team_member_details.keys())
 
         summary_prompt = f"""
 Summarize the following standup conversation:
@@ -659,21 +665,15 @@ Format the summary in markdown.
 """
         return model.generate_content(summary_prompt).text.strip()
 
-    # --------------------------------------------------------------------------------
-    # Pinecone Context Management Functions
-    # --------------------------------------------------------------------------------
     def store_context_in_pinecone(self, member_name: str, response: str, analysis_result: str):
-        """
-        Store the user's response and analysis in Pinecone, including a task_key for cross-user context.
-        """
         if not index:
-            return []
-        # Try to get the current task key (if any)
+            return
         task_key = None
         if self.current_sprint:
             member_tasks = self.get_member_tasks(member_name)
             if member_tasks and isinstance(member_tasks[0], dict):
                 task_key = member_tasks[0].get('Key')
+
         text = f"{member_name}'s response: {response}\nAnalysis: {analysis_result}"
         vector = safe_encode(embedding_model, text)
         vector_id = f"{self.user_id}-{datetime.now(timezone.utc).timestamp()}"
@@ -683,13 +683,8 @@ Format the summary in markdown.
             "text": text,
             "source": "standup_conversation",
             "timestamp": datetime.now(timezone.utc).timestamp(),
-            # Remove Streamlit dependency for conversation_step
-            "conversation_step": 1,
             "task_key": task_key
         }
-        sprint_id = self.current_sprint.get('id') if isinstance(self.current_sprint, dict) else None
-        if sprint_id != None:
-            metadata['sprint_id'] = sprint_id
         try:
             index.upsert([(vector_id, vector, metadata)])
             self.context_cache.pop(member_name, None)
@@ -697,11 +692,6 @@ Format the summary in markdown.
             print(f"Failed to store context in Pinecone: {str(e)}")
 
     def fetch_cross_user_context(self, task_key: Optional[str], exclude_user_id: Optional[str] = None, top_k: int = 5) -> list:
-        """
-        Fetch context for a given task_key from all users except the current one.
-        Returns a list of dicts with member_name, user_id, and text.
-        Pinecone filter syntax: {"task_key": "...", "user_id": {"$ne": "..."}}
-        """
         if not index or not task_key:
             return []
         try:
@@ -709,7 +699,7 @@ Format the summary in markdown.
             if exclude_user_id:
                 filter_dict["user_id"] = {"$ne": exclude_user_id}
             results = index.query(
-                vector=np.zeros(EMBEDDING_DIMENSION).tolist(),  # dummy vector, just filter by metadata
+                vector=np.zeros(EMBEDDING_DIMENSION).tolist(),
                 top_k=top_k,
                 include_metadata=True,
                 filter=filter_dict #type: ignore
@@ -720,10 +710,6 @@ Format the summary in markdown.
             return []
 
     def fetch_semantic_cross_user_context(self, task_description: str, exclude_user_id: Optional[str] = None, top_k: int = 5) -> list:
-        """
-        Fetch context for semantically similar tasks from all users except the current one.
-        Returns a list of dicts with member_name, user_id, and text.
-        """
         if not index or not task_description:
             return []
         try:
@@ -731,7 +717,6 @@ Format the summary in markdown.
             filter_dict = {}
             if exclude_user_id:
                 filter_dict["user_id"] = {"$ne": exclude_user_id}
-            # Always pass a dict for filter, even if empty
             results = index.query(
                 vector=vector,
                 top_k=top_k,
@@ -739,16 +724,11 @@ Format the summary in markdown.
                 filter=filter_dict
             )
             matches = getattr(results, "matches", [])
-            # Only include matches above a similarity threshold
-            threshold = 0.7  # Cosine similarity threshold
+            threshold = 0.7
             return [
                 match.metadata for match in matches
                 if hasattr(match, "metadata") and getattr(match, "score", 0) >= threshold
             ]
-        except Exception as e:
-            print(f"Failed to fetch semantic cross-user context: {str(e)}")
-            return []
-            
         except Exception as e:
             print(f"Failed to fetch semantic cross-user context: {str(e)}")
             return []
