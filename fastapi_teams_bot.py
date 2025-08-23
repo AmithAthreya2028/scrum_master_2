@@ -33,6 +33,7 @@ class BotRequest(BaseModel):
     activity_type: str
     text: str = ""
     user_id: str
+    user_name: str
     conversation_id: str
     session_id: Optional[str] = None
 
@@ -139,7 +140,8 @@ async def start_session(request: BotRequest):
             
             question = session["scrum_master"].generate_question(
                 member_display_name,
-                session["conversation_step"]
+                session["conversation_step"],
+                request.user_name
             )
             session["messages"].append({
                 "role": "assistant",
@@ -262,7 +264,8 @@ async def select_board(request: BotRequest):
         
         question = session["scrum_master"].generate_question(
             member_display_name,
-            session["conversation_step"]
+            session["conversation_step"],
+            request.user_name
         )
         session["messages"].append({
             "role": "assistant",
@@ -363,6 +366,24 @@ async def process_message(request: BotRequest):
     member_display_name = get_display_name(member_data)
     response = request.text
     clean_response = re.sub(r"<at>.*?</at>", "", response).replace("@Agentic Scrum Bot", "").strip()
+
+    # Enforce active user validation for regular answers only (allow control commands by anyone)
+    normalized_cmd = clean_response.lower()
+    control_commands_no_validation = {
+        "skip", "skip user", "not available", "on leave", "sick leave",
+        "end standup", "end", "finish"
+    }
+    if normalized_cmd not in control_commands_no_validation:
+        if session.get("scrum_master") and hasattr(session["scrum_master"], "verify_active_user"):
+            is_match, message = session["scrum_master"].verify_active_user(member_display_name, request.user_name)
+            if not is_match:
+                # Do not record this as a user response; return the polite mismatch message
+                return BotResponse(
+                    activity_id=request.activity_id,
+                    text=message,
+                    session_id=session_id,
+                    requires_input=True
+                )
 
     # SCRUM MASTER INTERVENTION HANDLING
     if safe_user_id == SCRUM_MASTER_ID:
@@ -505,7 +526,8 @@ async def process_message(request: BotRequest):
         next_member_display_name = get_display_name(next_member_data)
         next_question = session["scrum_master"].generate_question(
             next_member_display_name,
-            session["conversation_step"]
+            session["conversation_step"],
+            request.user_name
         )
         session["messages"].append({
             "role": "assistant",
@@ -568,7 +590,8 @@ async def process_message(request: BotRequest):
         next_member_display_name = get_display_name(next_member_data)
         next_question = session["scrum_master"].generate_question(
             next_member_display_name,
-            session["conversation_step"]
+            session["conversation_step"],
+            request.user_name
         )
         session["messages"].append({
             "role": "assistant",
@@ -585,7 +608,8 @@ async def process_message(request: BotRequest):
         session["conversation_step"] += 1
         next_question = session["scrum_master"].generate_question(
             member_display_name,
-            session["conversation_step"]
+            session["conversation_step"],
+            request.user_name
         )
         session["messages"].append({
             "role": "assistant",
@@ -647,7 +671,7 @@ async def teams_webhook(request: Request):
         # Extract user and conversation identifiers
         from_obj = data.get("from", {})
         user_id = from_obj.get("id", "unknown")
-        # user_name = from_obj.get("name", "unknown")
+        user_name = from_obj.get("name", "unknown")
 
         conversation = data.get("conversation", {})
         conversation_id = conversation.get("id", "unknown")
@@ -669,6 +693,7 @@ async def teams_webhook(request: Request):
                 activity_type=activity_type,
                 text="",
                 user_id=user_id,
+                user_name=user_name,
                 conversation_id=conversation_id,
                 session_id=session_id
             )
@@ -689,6 +714,7 @@ async def teams_webhook(request: Request):
                     activity_type=activity_type,
                     text=text,
                     user_id=user_id,
+                    user_name=user_name,
                     conversation_id=conversation_id,
                     session_id=session_id
                 )
@@ -762,8 +788,9 @@ async def teams_webhook(request: Request):
                 app_id = MICROSOFT_APP_ID
                 app_password = MICROSOFT_APP_PASSWORD
 
-                # Get OAuth token
-                token_url = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
+                # Get OAuth token using tenant-specific endpoint
+                TENANT_ID = os.getenv("TENANT_ID", "botframework.com")
+                token_url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
                 token_data = {
                     "grant_type": "client_credentials",
                     "client_id": app_id,
@@ -771,6 +798,7 @@ async def teams_webhook(request: Request):
                     "scope": "https://api.botframework.com/.default"
                 }
                 token_response = requests.post(token_url, data=token_data)
+                print("Token response:", token_response.text)  # Debug: print token response
                 token = token_response.json().get("access_token")
 
                 # Prepare the reply activity

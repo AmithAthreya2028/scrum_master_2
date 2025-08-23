@@ -445,43 +445,70 @@ class AIScrumMaster:
 
 
 
-    def generate_question(self, member_name: str, step: int) -> str:
+    def verify_active_user(self, expected_member_name: str, active_user_name: str) -> tuple[bool, str]:
         """
-        Generate the next appropriate question for the user, using the full conversation history
-        for this user in the current standup, and summaries from previous standups, with explicit
-        instructions to avoid repeating topics. Also, reference context from other users who have worked on the same task.
+        Verify the active Teams user matches the expected standup member.
+        Returns (True, "") on match. On mismatch, returns (False, polite_message).
         """
+        verification_prompt = f"""
+You are a security gate for an automated standup meeting.
+The standup is currently waiting for an update from a team member named: "{expected_member_name}".
+The user who just sent a message to the bot is named: "{active_user_name}".
+
+Are these two names referring to the same person? Consider variations like first name only, last name only, nicknames, or partial names (e.g., 'John Doe' vs 'John D.').
+- If they are the same person, respond with only the word "MATCH".
+- If they are different people, respond with "MISMATCH" followed by a polite message stating that it is currently {expected_member_name}'s turn.
+"""
+        try:
+            result = model.generate_content(verification_prompt).text.strip()
+        except Exception as e:
+            print(f"Error during user verification with LLM: {e}")
+            result = f"MISMATCH: Apologies, there was an error verifying the user. It is {expected_member_name}'s turn."
+
+        normalized = result.strip().upper()
+        # Important: check explicit prefixes to avoid 'MATCH' substring inside 'MISMATCH'
+        if normalized.startswith("MATCH") and not normalized.startswith("MISMATCH"):
+            return True, ""
+        if normalized.startswith("MISMATCH"):
+            return False, result
+        # Fallback: be conservative and treat as mismatch with a helpful message
+        return False, (
+            f"Apologies, I couldn't verify the user reliably. It is currently {expected_member_name}'s turn."
+        )
+
+
+    def generate_question(self, member_name: str, step: int, active_user_name: Optional[str] = None) -> str:
+        """
+        Generate the next appropriate question for the user.
+        Note: User identity validation is handled by the caller (API layer) before this is invoked.
+        """
+            # No identity verification here; only question generation.
+
+        # If verification passes, proceed with generating the actual standup question.
         # Gather all Q&A for this member in the current standup
         member_history = []
         for msg in self.conversation_history:
-            # Only include messages relevant to this member in this standup
-            # (Assumes user responses are always after an assistant question for that user)
             if msg.get("member_name") == member_name:
                 member_history.append({"role": msg["role"], "content": msg["content"]})
 
-        # Format the Q&A history for the prompt
         qa_history = ""
         for msg in member_history:
             if msg["role"] == "assistant":
                 qa_history += f"Assistant asked: {msg['content']}\n"
             elif msg["role"] == "user":
                 qa_history += f"{member_name} replied: {msg['content']}\n"
-        # If there is no prior conversation for this user in this standup, make it explicit
         if not qa_history:
             qa_history = f"No prior conversation history for {member_name} in this standup. This is the first question for {member_name}."
 
-        # Gather previous standup summaries for this user
         previous_standups = get_previous_standups(self.user_id, limit=3)
         previous_summaries = [
             doc.get("summary") for doc in previous_standups if doc.get("summary")
         ]
         previous_context = "\n".join(f"- {summary}" for summary in previous_summaries) if previous_summaries else "No previous standup summaries available."
 
-        # Gather JIRA tasks context for this user in the current sprint
         tasks_context = self.build_tasks_context(member_name)
         member_tasks = self.get_member_tasks(member_name)
 
-        # Fetch cross-user context for each task
         cross_user_contexts = []
         for task in member_tasks:
             task_key = task.get('Key')
@@ -493,51 +520,41 @@ class AIScrumMaster:
                         "context": cross_context
                     })
 
-        # Format cross-user context for the prompt
         cross_user_context_str = ""
         for item in cross_user_contexts:
             cross_user_updates = "\n".join(
                 f"- {ctx.get('member_name', 'Unknown')}: {ctx.get('text', '')}"
-                for ctx in item["context"]
+                for ctx in item['context']
             )
-            cross_user_context_str += f"\nOther team members' updates for task {item['task_key']}:\n{cross_user_updates}\n"
-
-        # Standard Scrum questions for reference
-        scrum_questions = [
-            "What did you work on since the last standup?",
-            "What are you planning to work on today?",
-            "Are there any blockers or impediments in your way?",
-            "Is there anything else you'd like to share with the team?"
-        ]
+            cross_user_context_str += f"\nUpdates from other team members on task {item['task_key']}:\n{cross_user_updates}"
 
         prompt = f"""
-    You are an AI Scrum Master conducting a standup with {member_name}.
+You are an AI Scrum Master conducting a daily stand-up meeting.
+Your role is to ask insightful, context-aware follow-up questions based on the user's previous updates and assigned tasks.
+Avoid generic questions. Focus on specifics and potential blockers.
 
-    Here are the tasks assigned to {member_name} in the current sprint:
-    {tasks_context}
+Current Team Member: {member_name}
+Assigned JIRA Tasks for {member_name}:
+{tasks_context}
+Conversation History for {member_name} in this Standup:
+{qa_history}
+Summaries from {member_name}'s Previous Standups:
+{previous_context}
+{cross_user_context_str}
 
-    {cross_user_context_str}
+Based on all the context provided, generate the single best, most relevant, and concise question to ask {member_name} next.
+- DO NOT repeat questions that have already been asked in the current standup.
+- The question should be direct and aimed at uncovering progress, impediments, or plans.
+- Frame the question naturally, as a human scrum master would.
+- Only return the question itself, without any preamble.
+"""
+        try:
+            response = model.generate_content(prompt)
+            refined_question = response.text.strip()
+        except Exception as e:
+            print(f"Error generating question with LLM: {e}")
+            refined_question = f"Apologies, I encountered an issue. Could you please summarize your progress for {member_name}?"
 
-    Here is the conversation so far in the current standup:
-    {qa_history}
-
-    Here are summaries from previous standups for {member_name}:
-    {previous_context}
-
-    Your task:
-    - For each JIRA task listed above, ask the user for a status update, blockers, and next steps, one task at a time.
-    - Reference what other team members have said about the same task if available.
-    - Do NOT finish the standup until all tasks have been discussed, unless the user explicitly says they have nothing more to add for all tasks.
-    - Reference the JIRA tasks above directly in your questions (use their IDs and summaries).
-    - Do NOT ask about topics that {member_name} has already answered or declined (e.g., said 'no', 'nothing', or similar).
-    - If a topic has been covered, move on to the next relevant Scrum question or task.
-    - Only ask a follow-up if clarification is genuinely needed and has not already been declined.
-    - The standard Scrum questions are: {', '.join(scrum_questions)}
-
-    Now, generate the next appropriate question for {member_name}, or move to the next team member only after all tasks have been discussed or the user has nothing more to add.
-    """
-
-        refined_question = model.generate_content(prompt).text.strip()
         if not refined_question:
             return "Thank you, all questions have been answered!"
         return refined_question
